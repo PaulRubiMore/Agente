@@ -1,7 +1,6 @@
 # ============================================================
-# SISTEMA MULTI-AGENTE DE MANTENIMIENTO – FECHAS REALES
-# CON FECHA DE REALIZACIÓN
-# INTERFAZ EXPLICATIVA STREAMLIT
+# SISTEMA MULTI-AGENTE DE MANTENIMIENTO – PROGRAMADOR INTELIGENTE
+# CP-SAT con Prioridad Estratégica y Fechas Reales
 # ============================================================
 
 import streamlit as st
@@ -12,248 +11,191 @@ import datetime
 import plotly.express as px
 
 st.set_page_config(layout="wide")
-
-st.title("🧠 AGENTE 6 – Programador Inteligente (CP-SAT) – Fechas Reales")
-st.markdown("Sistema Multi-Agente de Programación Óptima con fechas reales y fecha de realización")
+st.title("🧠 AGENTE 6 – Programador Inteligente (CP-SAT)")
+st.markdown("Sistema Multi-Agente de Programación Óptima con fechas reales y priorización estratégica")
 
 # ============================================================
-# FASE 0 – CARGA DE DATOS (Generación + Visualización)
+# FASE 0 – CARGA DE DATOS
 # ============================================================
 
-with st.expander("FASE 0 – Carga de Datos", expanded=True):
+HORIZONTE_DIAS = 14
+HORAS_POR_DIA = 8
+HORIZONTE_HORAS = HORIZONTE_DIAS * HORAS_POR_DIA
 
-    HORIZONTE_DIAS = 14
-    HORAS_POR_DIA = 8
-    HORIZONTE_HORAS = HORIZONTE_DIAS * HORAS_POR_DIA
+capacidad_disciplina = {"MEC":6,"ELE":4,"INS":3,"CIV":3}
+fecha_inicio = datetime.date.today()
 
-    st.write(f"Horizonte total: {HORIZONTE_HORAS} horas")
+st.write(f"Horizonte total: {HORIZONTE_HORAS} horas")
+st.write("Capacidad técnica por disciplina:", capacidad_disciplina)
 
-    capacidad_disciplina = {
-        "MEC": 6,
-        "ELE": 4,
-        "INS": 3,
-        "CIV": 3
-    }
+def generar_ots_aleatorias(n, horizonte_dias):
+    disciplinas_disponibles = ["MEC","ELE","INS","CIV"]
+    tipos = ["PREV","PRED","CORR"]
+    criticidades = ["Alta","Media","Baja"]
+    ubicaciones = ["Planta","Remota"]
+    ots = []
 
-    st.write("Capacidad técnica por disciplina:", capacidad_disciplina)
+    for i in range(1,n+1):
+        tipo = random.choices(tipos, weights=[0.4,0.3,0.3])[0]
+        criticidad = random.choices(criticidades, weights=[0.3,0.4,0.3])[0]
+        ubicacion = random.choice(ubicaciones)
 
-    fecha_inicio = datetime.date.today()
+        # Fechas aleatorias
+        fecha_tentativa = fecha_inicio + datetime.timedelta(days=random.randint(0,horizonte_dias-2))
+        fecha_limite = fecha_tentativa + datetime.timedelta(days=random.randint(1,horizonte_dias-(fecha_tentativa-fecha_inicio).days))
+        fecha_realizacion = fecha_tentativa + datetime.timedelta(days=random.randint(0,(fecha_limite-fecha_tentativa).days))
 
-    def generar_ots_aleatorias(n, horizonte_dias):
-        disciplinas_disponibles = ["MEC", "ELE", "INS", "CIV"]
-        tipos = ["PREV", "PRED", "CORR"]
-        criticidades = ["Alta", "Media", "Baja"]
-        ubicaciones = ["Planta", "Remota"]
+        num_disciplinas = random.choices([1,2], weights=[0.7,0.3])[0]
+        disciplinas = random.sample(disciplinas_disponibles, num_disciplinas)
+        horas_list, tecnicos_list = [], []
 
-        ots = []
+        for d in disciplinas:
+            horas_list.append(str(random.choice([4,6,8,10,12])))
+            tecnicos_list.append(str(random.choice([1,2])))
 
-        for i in range(1, n + 1):
-            tipo = random.choices(tipos, weights=[0.4,0.3,0.3])[0]
-            criticidad = random.choices(criticidades, weights=[0.3,0.4,0.3])[0]
-            ubicacion = random.choice(ubicaciones)
+        ot = {
+            "id": f"OT{i:03}",
+            "Tipo": tipo,
+            "Criticidad": criticidad,
+            "Fecha_Tentativa": fecha_tentativa,
+            "Fecha_Limite": fecha_limite,
+            "Fecha_Realizacion": fecha_realizacion,
+            "Ubicacion": ubicacion,
+            "Camioneta": "SI" if ubicacion=="Remota" else "NO",
+            "Disciplinas": " | ".join(disciplinas),
+            "Horas": " | ".join(horas_list),
+            "Tecnicos": " | ".join(tecnicos_list)
+        }
+        ots.append(ot)
+    return ots
 
-            # Fechas aleatorias
-            fecha_tentativa = fecha_inicio + datetime.timedelta(days=random.randint(0,horizonte_dias-2))
-            fecha_limite = fecha_tentativa + datetime.timedelta(days=random.randint(1,horizonte_dias-(fecha_tentativa-fecha_inicio).days))
-
-            # NUEVO: Fecha de realización aleatoria dentro de la ventana
-            fecha_realizacion = fecha_tentativa + datetime.timedelta(days=random.randint(0, (fecha_limite - fecha_tentativa).days))
-
-            num_disciplinas = random.choices([1,2], weights=[0.7,0.3])[0]
-            disciplinas = random.sample(disciplinas_disponibles, num_disciplinas)
-
-            horas_list = []
-            tecnicos_list = []
-
-            for d in disciplinas:
-                horas = random.choice([4,6,8,10,12])
-                tecnicos = random.choice([1,2])
-                horas_list.append(str(horas))
-                tecnicos_list.append(str(tecnicos))
-
-            ot = {
-                "id": f"OT{i:03}",
-                "Tipo": tipo,
-                "Criticidad": criticidad,
-                "Fecha_Tentativa": fecha_tentativa,
-                "Fecha_Limite": fecha_limite,
-                "Fecha_Realizacion": fecha_realizacion,  # NUEVO CAMPO
-                "Ubicacion": ubicacion,
-                "Camioneta": "SI" if ubicacion=="Remota" else "NO",
-                "Disciplinas": " | ".join(disciplinas),
-                "Horas": " | ".join(horas_list),
-                "Tecnicos": " | ".join(tecnicos_list)
-            }
-            ots.append(ot)
-        return ots
-
-    cantidad_ots = st.slider("Cantidad de OTs a generar", 10, 150, 50)
-    raw_ots = generar_ots_aleatorias(cantidad_ots, HORIZONTE_DIAS)
-    st.success(f"Se generaron {len(raw_ots)} OTs")
-    df_ots = pd.DataFrame(raw_ots)
-    st.subheader("📋 Órdenes de Trabajo Generadas")
-    st.dataframe(df_ots, use_container_width=True)
+cantidad_ots = st.slider("Cantidad de OTs a generar", 10, 150, 50)
+raw_ots = generar_ots_aleatorias(cantidad_ots, HORIZONTE_DIAS)
+df_ots = pd.DataFrame(raw_ots)
+st.subheader("📋 Órdenes de Trabajo Generadas")
+st.dataframe(df_ots,use_container_width=True)
 
 # ============================================================
 # FASE 1 – ANALISTA DE CONDICIÓN
 # ============================================================
 
-with st.expander("FASE 1 – Agente Analista de Condición", expanded=True):
-    for ot in raw_ots:
-        if ot["Tipo"] == "CORR":
-            degradacion = 0.9
-        elif ot["Tipo"] == "PRED":
-            degradacion = 0.6
-        else:
-            degradacion = 0.3
-        ot["Indice_Degradacion"] = degradacion
-        st.write(f"{ot['id']} → Índice degradación: {degradacion}")
+for ot in raw_ots:
+    if ot["Tipo"]=="CORR": degradacion=0.9
+    elif ot["Tipo"]=="PRED": degradacion=0.6
+    else: degradacion=0.3
+    ot["Indice_Degradacion"]=degradacion
 
 # ============================================================
 # FASE 2 – PRIORIZACIÓN ESTRATÉGICA
 # ============================================================
 
-with st.expander("FASE 2 – Agente Priorización", expanded=True):
-    def criticidad_score(c): return {"Alta":3,"Media":2,"Baja":1}[c]
-    def tipo_score(t): return {"CORR":100,"PRED":60,"PREV":40}[t]
+def criticidad_score(c): return {"Alta":3,"Media":2,"Baja":1}[c]
+def tipo_score(t): return {"CORR":100,"PRED":60,"PREV":40}[t]
 
-    for ot in raw_ots:
-        score = tipo_score(ot["Tipo"]) + criticidad_score(ot["Criticidad"])*10 + ot["Indice_Degradacion"]*20
-        ot["Score"] = int(score)
-        st.write(f"{ot['id']} → Score estratégico: {ot['Score']}")
+for ot in raw_ots:
+    ot["Score"] = tipo_score(ot["Tipo"])+criticidad_score(ot["Criticidad"])*10+ot["Indice_Degradacion"]*20
 
 # ============================================================
-# FASE 3 – CONSTRUCCIÓN MODELO CP-SAT
+# FASE 3 – MODELO CP-SAT
 # ============================================================
 
-with st.expander("FASE 3 – Construcción Modelo Matemático (CP-SAT)", expanded=True):
-    model = cp_model.CpModel()
-    intervals_por_disciplina = {d:[] for d in capacidad_disciplina}
-    start_vars = {}
-    end_vars = {}
+model = cp_model.CpModel()
+intervals_por_disciplina = {d:[] for d in capacidad_disciplina}
+start_vars, end_vars, atraso_vars, penalizaciones = {}, {}, {}, []
 
-    for ot in raw_ots:
-        inicio_min = (ot["Fecha_Tentativa"] - fecha_inicio).days * HORAS_POR_DIA
-        fin_max = (ot["Fecha_Limite"] - fecha_inicio).days * HORAS_POR_DIA
+for ot in raw_ots:
+    inicio_min = (ot["Fecha_Tentativa"]-fecha_inicio).days*HORAS_POR_DIA
+    fin_max = (ot["Fecha_Limite"]-fecha_inicio).days*HORAS_POR_DIA
+    disciplinas = [d.strip() for d in ot["Disciplinas"].split("|")]
+    horas = [int(h.strip()) for h in ot["Horas"].split("|")]
+    tecnicos_req = [int(t.strip()) for t in ot["Tecnicos"].split("|")]
 
-        disciplinas = [d.strip() for d in ot["Disciplinas"].split("|")]
-        horas = [int(h.strip()) for h in ot["Horas"].split("|")]
-        tecnicos_req = [int(t.strip()) for t in ot["Tecnicos"].split("|")]
+    for i in range(len(disciplinas)):
+        disc = disciplinas[i]
+        dur = horas[i]
+        demanda = tecnicos_req[i]
+        nombre = f"{ot['id']}_{disc}"
 
-        for i in range(len(disciplinas)):
-            disc = disciplinas[i]
-            dur = horas[i]
-            demanda = tecnicos_req[i]
-            nombre = f"{ot['id']}_{disc}"
+        start = model.NewIntVar(inicio_min, fin_max-dur, f"start_{nombre}")
+        end = model.NewIntVar(inicio_min+dur, fin_max, f"end_{nombre}")
+        interval = model.NewIntervalVar(start,dur,end,f"interval_{nombre}")
+        intervals_por_disciplina[disc].append((interval,demanda))
+        start_vars[nombre] = start
+        end_vars[nombre] = end
 
-            start = model.NewIntVar(inicio_min, fin_max - dur, f"start_{nombre}")
-            end = model.NewIntVar(inicio_min + dur, fin_max, f"end_{nombre}")
-            interval = model.NewIntervalVar(start, dur, end, f"interval_{nombre}")
-
-            intervals_por_disciplina[disc].append((interval, demanda))
-            start_vars[nombre] = start
-            end_vars[nombre] = end
-
-    st.success("Modelo matemático construido correctamente.")
+        # Variable de atraso ponderada por score
+        atraso = model.NewIntVar(0,HORIZONTE_HORAS,f"atraso_{nombre}")
+        model.Add(atraso >= end - fin_max)
+        atraso_vars[nombre] = atraso
+        penalizaciones.append(atraso*ot["Score"])
 
 # ============================================================
 # FASE 4 – RESTRICCIONES DE CAPACIDAD
 # ============================================================
 
-with st.expander("FASE 4 – Restricciones de Capacidad", expanded=True):
-    for disc, intervalos in intervals_por_disciplina.items():
-        if intervalos:
-            model.AddCumulative([i[0] for i in intervalos], [i[1] for i in intervalos], capacidad_disciplina[disc])
-            st.write(f"Restricción aplicada para disciplina {disc}")
+for disc, intervalos in intervals_por_disciplina.items():
+    if intervalos:
+        model.AddCumulative([i[0] for i in intervalos],[i[1] for i in intervalos],capacidad_disciplina[disc])
 
 # ============================================================
 # FASE 5 – FUNCIÓN OBJETIVO
 # ============================================================
 
-with st.expander("FASE 5 – Función Objetivo", expanded=True):
-    makespan = model.NewIntVar(0, HORIZONTE_HORAS, "makespan")
-    model.AddMaxEquality(makespan, list(end_vars.values()))
-    model.Minimize(makespan)
-    st.write("Objetivo: Minimizar duración total del plan")
+model.Minimize(sum(penalizaciones))
 
 # ============================================================
 # FASE 6 – RESOLUCIÓN
 # ============================================================
 
-with st.expander("FASE 6 – Resolución del Modelo", expanded=True):
+solver = cp_model.CpSolver()
+solver.parameters.max_time_in_seconds = 30
+status = solver.Solve(model)
 
-    solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 20
+if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
+    resultados = []
+    for nombre,start_var in start_vars.items():
+        inicio_horas = solver.Value(start_var)
+        fin_horas = solver.Value(end_vars[nombre])
+        ot_id = nombre.split("_")[0]
+        ot_data = next(ot for ot in raw_ots if ot["id"]==ot_id)
+        atraso = solver.Value(atraso_vars[nombre])
+        fecha_inicio_ot = fecha_inicio+datetime.timedelta(hours=inicio_horas)
+        fecha_fin_ot = fecha_inicio+datetime.timedelta(hours=fin_horas)
 
-    status = solver.Solve(model)
+        resultados.append({
+            "Bloque": nombre,
+            "OT": ot_id,
+            "Fecha Inicio": fecha_inicio_ot,
+            "Fecha Fin": fecha_fin_ot,
+            "Horas Atraso": atraso,
+            "Backlog": "SI" if atraso>0 else "NO",
+            "Fecha_Realizacion": ot_data["Fecha_Realizacion"]
+        })
 
-    if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
-        st.success("Solución encontrada ✔")
+    df_res = pd.DataFrame(resultados).sort_values("Fecha Inicio")
+    total_bloques = len(df_res)
+    backlog_count = len(df_res[df_res["Backlog"]=="SI"])
+    cumplimiento = 100*(1-backlog_count/total_bloques)
 
-        resultados = []
+    st.subheader("📊 Indicadores de Cumplimiento")
+    col1,col2,col3 = st.columns(3)
+    col1.metric("Total Bloques",total_bloques)
+    col2.metric("Bloques en Backlog",backlog_count)
+    col3.metric("% Cumplimiento",f"{cumplimiento:.1f}%")
+    st.dataframe(df_res,use_container_width=True)
 
-        for nombre, start_var in start_vars.items():
-            # Valor de inicio y fin según el solver
-            inicio_horas = solver.Value(start_var)
-            fin_horas = solver.Value(end_vars[nombre])
+    # Gantt
+    fig = px.timeline(
+        df_res,
+        x_start="Fecha Inicio",
+        x_end="Fecha Fin",
+        y="Bloque",
+        color="Backlog",
+        hover_data=["OT","Fecha_Realizacion","Horas Atraso"],
+        title="📅 Diagrama de Gantt – Programación Óptima"
+    )
+    fig.update_yaxes(autorange="reversed")
+    st.plotly_chart(fig,use_container_width=True)
 
-            # Convertimos a fecha/hora real
-            fecha_inicio_ot = fecha_inicio + datetime.timedelta(hours=inicio_horas)
-            fecha_fin_ot = fecha_inicio + datetime.timedelta(hours=fin_horas)
-
-            # ID de la OT
-            ot_id = nombre.split("_")[0]
-
-            # Buscamos fecha límite y fecha de realización original
-            ot_data = next(ot for ot in raw_ots if ot["id"] == ot_id)
-            fecha_limite_horas = (ot_data["Fecha_Limite"] - fecha_inicio).days * HORAS_POR_DIA
-            atraso = max(0, fin_horas - fecha_limite_horas)
-
-            resultados.append({
-                "Bloque": nombre,
-                "OT": ot_id,
-                "Inicio_horas": inicio_horas,
-                "Fin_horas": fin_horas,
-                "Fecha Inicio": fecha_inicio_ot,
-                "Fecha Fin": fecha_fin_ot,
-                "Horas Atraso": atraso,
-                "Backlog": "SI" if atraso > 0 else "NO",
-                "Fecha_Realizacion": ot_data["Fecha_Realizacion"]
-            })
-
-        df = pd.DataFrame(resultados).sort_values("Inicio_horas")
-
-        # Indicadores
-        total_bloques = len(df)
-        backlog_count = len(df[df["Backlog"] == "SI"])
-        cumplimiento = 100 * (1 - backlog_count / total_bloques)
-
-        st.subheader("📊 Indicadores de Cumplimiento")
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total Bloques", total_bloques)
-        col2.metric("Bloques en Backlog", backlog_count)
-        col3.metric("% Cumplimiento", f"{cumplimiento:.1f}%")
-
-        # Mostrar tabla con fechas
-        st.dataframe(df[[
-            "Bloque","OT","Fecha Inicio","Fecha Fin","Horas Atraso","Backlog","Fecha_Realizacion"
-        ]], use_container_width=True)
-
-        # Diagrama de Gantt con fechas reales
-        fig = px.timeline(
-            df,
-            x_start="Fecha Inicio",
-            x_end="Fecha Fin",
-            y="Bloque",
-            color="Backlog",
-            hover_data=["OT","Fecha_Realizacion","Horas Atraso"],
-            title="📅 Diagrama de Gantt – Programación Óptima"
-        )
-        fig.update_yaxes(autorange="reversed")
-        st.plotly_chart(fig, use_container_width=True)
-
-        # Métrica duración total
-        st.metric("Duración total (horas)", solver.Value(makespan))
-
-    else:
-        st.error("No se encontró solución factible en el tiempo permitido.")
+else:
+    st.error("No se encontró solución factible en el tiempo permitido.")
