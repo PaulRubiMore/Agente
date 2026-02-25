@@ -15,7 +15,7 @@ st.title("🧠 AGENTE 6 – Programador Inteligente (CP-SAT)")
 st.markdown("Sistema Multi-Agente de Programación Óptima")
 
 # ============================================================
-# FASE 0 – CARGA DE DATOS (Generación Aleatoria)
+# FASE 0 – CARGA DE DATOS (Generación + Visualización)
 # ============================================================
 
 with st.expander("FASE 0 – Carga de Datos", expanded=True):
@@ -36,7 +36,7 @@ with st.expander("FASE 0 – Carga de Datos", expanded=True):
     st.write("Capacidad técnica por disciplina:", capacidad_disciplina)
 
     # --------------------------------------------------------
-    # FUNCIÓN GENERADORA DE OTs
+    # FUNCIÓN GENERADORA
     # --------------------------------------------------------
 
     def generar_ots_aleatorias(n, horizonte_dias):
@@ -71,13 +71,13 @@ with st.expander("FASE 0 – Carga de Datos", expanded=True):
                 tecnicos_list.append(str(tecnicos))
 
             ot = {
-                "id": f"OT{i:03}",
+                "OT": f"OT{i:03}",
                 "Tipo": tipo,
                 "Criticidad": criticidad,
                 "Dia_Tentativo": dia_tentativo,
                 "Dia_Limite": dia_limite,
                 "Ubicacion": ubicacion,
-                "Camioneta": 1 if ubicacion == "Remota" else 0,
+                "Camioneta": "SI" if ubicacion == "Remota" else "NO",
                 "Disciplinas": " | ".join(disciplinas),
                 "Horas": " | ".join(horas_list),
                 "Tecnicos": " | ".join(tecnicos_list)
@@ -91,7 +91,17 @@ with st.expander("FASE 0 – Carga de Datos", expanded=True):
 
     raw_ots = generar_ots_aleatorias(cantidad_ots, HORIZONTE_DIAS)
 
-    st.write(f"Total OTs generadas: {len(raw_ots)}")
+    st.success(f"Se generaron {len(raw_ots)} OTs")
+
+    # --------------------------------------------------------
+    # VISUALIZACIÓN TABULAR
+    # --------------------------------------------------------
+
+    df_ots = pd.DataFrame(raw_ots)
+
+    st.subheader("📋 Órdenes de Trabajo Generadas")
+
+    st.dataframe(df_ots, use_container_width=True)
 
 # ============================================================
 # FASE 1 – ANALISTA DE CONDICIÓN
@@ -276,3 +286,4 @@ with st.expander("FASE 6 – Resolución del Modelo", expanded=True):
         st.plotly_chart(fig, use_container_width=True)
 
         st.metric("Duración total (horas)", solver.Value(makespan))
+
