@@ -71,7 +71,7 @@ with st.expander("FASE 0 – Carga de Datos", expanded=True):
                 tecnicos_list.append(str(tecnicos))
 
             ot = {
-                "OT": f"OT{i:03}",
+                "id": f"OT{i:03}",
                 "Tipo": tipo,
                 "Criticidad": criticidad,
                 "Dia_Tentativo": dia_tentativo,
@@ -93,14 +93,9 @@ with st.expander("FASE 0 – Carga de Datos", expanded=True):
 
     st.success(f"Se generaron {len(raw_ots)} OTs")
 
-    # --------------------------------------------------------
-    # VISUALIZACIÓN TABULAR
-    # --------------------------------------------------------
-
     df_ots = pd.DataFrame(raw_ots)
 
     st.subheader("📋 Órdenes de Trabajo Generadas")
-
     st.dataframe(df_ots, use_container_width=True)
 
 # ============================================================
@@ -251,8 +246,7 @@ with st.expander("FASE 6 – Resolución del Modelo", expanded=True):
                 "Backlog": "SI" if atraso > 0 else "NO"
             })
 
-        df = pd.DataFrame(resultados)
-        df = df.sort_values("Inicio")
+        df = pd.DataFrame(resultados).sort_values("Inicio")
 
         total_bloques = len(df)
         backlog_count = len(df[df["Backlog"] == "SI"])
@@ -266,8 +260,6 @@ with st.expander("FASE 6 – Resolución del Modelo", expanded=True):
         col3.metric("% Cumplimiento", f"{cumplimiento:.1f}%")
 
         st.dataframe(df)
-
-        # GANTT
 
         df["Inicio_dt"] = pd.to_datetime(df["Inicio"], unit="h")
         df["Fin_dt"] = pd.to_datetime(df["Fin"], unit="h")
@@ -286,4 +278,3 @@ with st.expander("FASE 6 – Resolución del Modelo", expanded=True):
         st.plotly_chart(fig, use_container_width=True)
 
         st.metric("Duración total (horas)", solver.Value(makespan))
-
