@@ -152,15 +152,22 @@ solver.parameters.max_time_in_seconds = 30
 status = solver.Solve(model)
 
 if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
+
     resultados = []
-    for nombre,start_var in start_vars.items():
+
+    for nombre, start_var in start_vars.items():
+
         inicio_horas = solver.Value(start_var)
         fin_horas = solver.Value(end_vars[nombre])
+
         ot_id = nombre.split("_")[0]
-        ot_data = next(ot for ot in raw_ots if ot["id"]==ot_id)
+        ot_data = next(ot for ot in raw_ots if ot["id"] == ot_id)
+
         atraso = solver.Value(atraso_vars[nombre])
-        fecha_inicio_ot = fecha_inicio+datetime.timedelta(hours=inicio_horas)
-        fecha_fin_ot = fecha_inicio+datetime.timedelta(hours=fin_horas)
+
+        # 🔥 IMPORTANTE: usar datetime real
+        fecha_inicio_ot = fecha_inicio + datetime.timedelta(hours=inicio_horas)
+        fecha_fin_ot = fecha_inicio + datetime.timedelta(hours=fin_horas)
 
         resultados.append({
             "Bloque": nombre,
@@ -168,37 +175,34 @@ if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
             "Fecha Inicio": fecha_inicio_ot,
             "Fecha Fin": fecha_fin_ot,
             "Horas Atraso": atraso,
-            "Backlog": "SI" if atraso>0 else "NO",
-            "Fecha_Realizacion": ot_data["Fecha_Realizacion"]
+            "Backlog": "SI" if atraso > 0 else "NO",
+            "Score": ot_data["Score"]
         })
 
     df_res = pd.DataFrame(resultados).sort_values("Fecha Inicio")
-    total_bloques = len(df_res)
-    backlog_count = len(df_res[df_res["Backlog"]=="SI"])
-    cumplimiento = 100*(1-backlog_count/total_bloques)
 
-    st.subheader("📊 Indicadores de Cumplimiento")
-    col1,col2,col3 = st.columns(3)
-    col1.metric("Total Bloques",total_bloques)
-    col2.metric("Bloques en Backlog",backlog_count)
-    col3.metric("% Cumplimiento",f"{cumplimiento:.1f}%")
-    st.dataframe(df_res,use_container_width=True)
+    st.subheader("📊 Resultados")
+    st.dataframe(df_res, use_container_width=True)
 
-    # Gantt
+    # 🔥 GANTT CORRECTO
     fig = px.timeline(
         df_res,
         x_start="Fecha Inicio",
         x_end="Fecha Fin",
         y="Bloque",
-        color="Backlog",
-        hover_data=["OT","Fecha_Realizacion","Horas Atraso"],
+        color="Score",  # mejor que backlog
+        hover_data=["OT", "Horas Atraso", "Score"],
         title="📅 Diagrama de Gantt – Programación Óptima"
     )
+
     fig.update_yaxes(autorange="reversed")
-    st.plotly_chart(fig,use_container_width=True)
+    fig.update_layout(xaxis_title="Tiempo", yaxis_title="Bloques")
+
+    st.plotly_chart(fig, use_container_width=True)
 
 else:
-    st.error("No se encontró solución factible en el tiempo permitido.")
+    st.error("No se encontró solución factible.")
+
 
 
 
