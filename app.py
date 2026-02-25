@@ -22,7 +22,7 @@ HORIZONTE_DIAS = 14
 HORAS_POR_DIA = 8
 HORIZONTE_HORAS = HORIZONTE_DIAS * HORAS_POR_DIA
 
-capacidad_disciplina = {"MEC":10"ELE":10,"INS":10,"CIV":10}
+capacidad_disciplina = {"MEC":10,"ELE":10,"INS":10,"CIV":10}
 fecha_inicio = datetime.date.today()
 
 st.write(f"Horizonte total: {HORIZONTE_HORAS} horas")
@@ -199,5 +199,6 @@ if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
 
 else:
     st.error("No se encontró solución factible en el tiempo permitido.")
+
 
 
