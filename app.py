@@ -181,35 +181,51 @@ with st.expander("FASE 5 – Función Objetivo", expanded=True):
 # ============================================================
 
 with st.expander("FASE 6 – Resolución del Modelo", expanded=True):
+
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = 20
+
     status = solver.Solve(model)
 
     if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
         st.success("Solución encontrada ✔")
 
         resultados = []
-        for nombre, start in start_vars.items():
-            inicio = solver.Value(start)
-            fin = solver.Value(end_vars[nombre])
+
+        for nombre, start_var in start_vars.items():
+            # Valor de inicio y fin según el solver
+            inicio_horas = solver.Value(start_var)
+            fin_horas = solver.Value(end_vars[nombre])
+
+            # Convertimos a fecha/hora real
+            fecha_inicio_ot = fecha_inicio + datetime.timedelta(hours=inicio_horas)
+            fecha_fin_ot = fecha_inicio + datetime.timedelta(hours=fin_horas)
+
+            # ID de la OT
             ot_id = nombre.split("_")[0]
-            fecha_limite_horas = (next(ot["Fecha_Limite"] for ot in raw_ots if ot["id"]==ot_id) - fecha_inicio).days * HORAS_POR_DIA
-            atraso = max(0, fin - fecha_limite_horas)
+
+            # Buscamos fecha límite y fecha de realización original
+            ot_data = next(ot for ot in raw_ots if ot["id"] == ot_id)
+            fecha_limite_horas = (ot_data["Fecha_Limite"] - fecha_inicio).days * HORAS_POR_DIA
+            atraso = max(0, fin_horas - fecha_limite_horas)
 
             resultados.append({
                 "Bloque": nombre,
                 "OT": ot_id,
-                "Inicio": inicio,
-                "Fin": fin,
-                "Fecha Inicio": fecha_inicio + datetime.timedelta(hours=inicio),
+                "Inicio_horas": inicio_horas,
+                "Fin_horas": fin_horas,
+                "Fecha Inicio": fecha_inicio_ot,
+                "Fecha Fin": fecha_fin_ot,
                 "Horas Atraso": atraso,
-                "Backlog": "SI" if atraso>0 else "NO",
-                "Fecha_Realizacion": next(ot["Fecha_Realizacion"] for ot in raw_ots if ot["id"]==ot_id)  # NUEVO CAMPO
+                "Backlog": "SI" if atraso > 0 else "NO",
+                "Fecha_Realizacion": ot_data["Fecha_Realizacion"]
             })
 
-        df = pd.DataFrame(resultados).sort_values("Inicio")
+        df = pd.DataFrame(resultados).sort_values("Inicio_horas")
+
+        # Indicadores
         total_bloques = len(df)
-        backlog_count = len(df[df["Backlog"]=="SI"])
+        backlog_count = len(df[df["Backlog"] == "SI"])
         cumplimiento = 100 * (1 - backlog_count / total_bloques)
 
         st.subheader("📊 Indicadores de Cumplimiento")
@@ -218,9 +234,26 @@ with st.expander("FASE 6 – Resolución del Modelo", expanded=True):
         col2.metric("Bloques en Backlog", backlog_count)
         col3.metric("% Cumplimiento", f"{cumplimiento:.1f}%")
 
-        st.dataframe(df)
+        # Mostrar tabla con fechas
+        st.dataframe(df[[
+            "Bloque","OT","Fecha Inicio","Fecha Fin","Horas Atraso","Backlog","Fecha_Realizacion"
+        ]], use_container_width=True)
 
-        fig = px.timeline(df, x_start="Fecha Inicio", x_end=df["Fecha Inicio"]+pd.to_timedelta(df["Fin"]-df["Inicio"], unit='h'), y="Bloque", color="Backlog", title="📅 Diagrama de Gantt – Programación Óptima")
+        # Diagrama de Gantt con fechas reales
+        fig = px.timeline(
+            df,
+            x_start="Fecha Inicio",
+            x_end="Fecha Fin",
+            y="Bloque",
+            color="Backlog",
+            hover_data=["OT","Fecha_Realizacion","Horas Atraso"],
+            title="📅 Diagrama de Gantt – Programación Óptima"
+        )
         fig.update_yaxes(autorange="reversed")
         st.plotly_chart(fig, use_container_width=True)
+
+        # Métrica duración total
         st.metric("Duración total (horas)", solver.Value(makespan))
+
+    else:
+        st.error("No se encontró solución factible en el tiempo permitido.")
