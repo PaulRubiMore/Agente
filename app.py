@@ -1,5 +1,6 @@
 # ============================================================
 # SISTEMA MULTI-AGENTE DE MANTENIMIENTO – FECHAS REALES
+# CON FECHA DE REALIZACIÓN
 # INTERFAZ EXPLICATIVA STREAMLIT
 # ============================================================
 
@@ -13,7 +14,7 @@ import plotly.express as px
 st.set_page_config(layout="wide")
 
 st.title("🧠 AGENTE 6 – Programador Inteligente (CP-SAT) – Fechas Reales")
-st.markdown("Sistema Multi-Agente de Programación Óptima con fechas reales")
+st.markdown("Sistema Multi-Agente de Programación Óptima con fechas reales y fecha de realización")
 
 # ============================================================
 # FASE 0 – CARGA DE DATOS (Generación + Visualización)
@@ -55,6 +56,9 @@ with st.expander("FASE 0 – Carga de Datos", expanded=True):
             fecha_tentativa = fecha_inicio + datetime.timedelta(days=random.randint(0,horizonte_dias-2))
             fecha_limite = fecha_tentativa + datetime.timedelta(days=random.randint(1,horizonte_dias-(fecha_tentativa-fecha_inicio).days))
 
+            # NUEVO: Fecha de realización aleatoria dentro de la ventana
+            fecha_realizacion = fecha_tentativa + datetime.timedelta(days=random.randint(0, (fecha_limite - fecha_tentativa).days))
+
             num_disciplinas = random.choices([1,2], weights=[0.7,0.3])[0]
             disciplinas = random.sample(disciplinas_disponibles, num_disciplinas)
 
@@ -73,6 +77,7 @@ with st.expander("FASE 0 – Carga de Datos", expanded=True):
                 "Criticidad": criticidad,
                 "Fecha_Tentativa": fecha_tentativa,
                 "Fecha_Limite": fecha_limite,
+                "Fecha_Realizacion": fecha_realizacion,  # NUEVO CAMPO
                 "Ubicacion": ubicacion,
                 "Camioneta": "SI" if ubicacion=="Remota" else "NO",
                 "Disciplinas": " | ".join(disciplinas),
@@ -198,7 +203,8 @@ with st.expander("FASE 6 – Resolución del Modelo", expanded=True):
                 "Fin": fin,
                 "Fecha Inicio": fecha_inicio + datetime.timedelta(hours=inicio),
                 "Horas Atraso": atraso,
-                "Backlog": "SI" if atraso>0 else "NO"
+                "Backlog": "SI" if atraso>0 else "NO",
+                "Fecha_Realizacion": next(ot["Fecha_Realizacion"] for ot in raw_ots if ot["id"]==ot_id)  # NUEVO CAMPO
             })
 
         df = pd.DataFrame(resultados).sort_values("Inicio")
