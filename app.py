@@ -180,54 +180,76 @@ status=solver.Solve(model)
 # RESULTADOS
 # ============================================================
 
-if status in [cp_model.OPTIMAL,cp_model.FEASIBLE]:
+if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
 
-    programadas=[]
-    pendientes=[]
+    programadas = []
+    pendientes = []
 
     for nombre in ejecucion:
 
-        ot_id=nombre.split("_")[0]
+        ot_id = nombre.split("_")[0]
 
-        if solver.Value(ejecucion[nombre])==1:
+        if solver.Value(ejecucion[nombre]) == 1:
 
-            inicio=solver.Value(start_vars[nombre])
+            inicio = solver.Value(start_vars[nombre])
+            fin = solver.Value(end_vars[nombre])
+
+            dia = inicio // HORAS_POR_DIA + 1
+            hora_dia = inicio % HORAS_POR_DIA
 
             programadas.append({
-                "OT":ot_id,
-                "Bloque":nombre,
-                "Dia":inicio//HORAS_POR_DIA+1
+                "OT": ot_id,
+                "Bloque": nombre,
+                "Inicio_h": inicio,
+                "Fin_h": fin,
+                "Día": dia,
+                "Hora Inicio": hora_dia
             })
 
         else:
-            pendientes.append({"OT":ot_id})
+            pendientes.append({"OT": ot_id})
 
-    df_prog=pd.DataFrame(programadas)
-    df_backlog=pd.DataFrame(pendientes)
+    df_prog = pd.DataFrame(programadas)
+    df_backlog = pd.DataFrame(pendientes)
 
     st.subheader("✅ PLAN SEMANAL")
-    st.dataframe(df_prog)
+    st.dataframe(df_prog, use_container_width=True)
 
     st.subheader("📦 OTs REPROGRAMADAS")
-    st.dataframe(df_backlog)
+    st.dataframe(df_backlog, use_container_width=True)
 
 # ============================================================
-# GANTT
+# GANTT REAL FUNCIONAL
 # ============================================================
 
     if not df_prog.empty:
 
-        df_prog["Inicio"]=df_prog["Dia"]*8
-        df_prog["Fin"]=df_prog["Inicio"]+8
+        # Fecha base ficticia de semana
+        fecha_base = pd.Timestamp("2026-01-05")
 
-        fig=px.timeline(
+        df_prog["Inicio_dt"] = df_prog["Inicio_h"].apply(
+            lambda h: fecha_base + pd.Timedelta(hours=h)
+        )
+
+        df_prog["Fin_dt"] = df_prog["Fin_h"].apply(
+            lambda h: fecha_base + pd.Timedelta(hours=h)
+        )
+
+        fig = px.timeline(
             df_prog,
-            x_start="Inicio",
-            x_end="Fin",
+            x_start="Inicio_dt",
+            x_end="Fin_dt",
             y="Bloque",
-            title="Plan Semanal"
+            color="OT",
+            title="📅 Planificación Semanal - Diagrama de Gantt"
         )
 
         fig.update_yaxes(autorange="reversed")
 
-        st.plotly_chart(fig,use_container_width=True)
+        fig.update_layout(
+            xaxis_title="Tiempo Semana",
+            yaxis_title="OT / Disciplina",
+            height=700
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
