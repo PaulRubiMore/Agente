@@ -1,6 +1,6 @@
 # ============================================================
-# SISTEMA MULTI-AGENTE DE MANTENIMIENTO
-# AGENTE 6 – PROGRAMADOR INTELIGENTE CP-SAT
+# AGENTE 6 – PROGRAMADOR INTELIGENTE
+# PLANIFICACIÓN HASTA AGOTAR CAPACIDAD
 # ============================================================
 
 import streamlit as st
@@ -11,41 +11,36 @@ import plotly.express as px
 
 st.set_page_config(layout="wide")
 
-st.title("🧠 AGENTE 6 – Programador Inteligente")
-st.markdown("Programación Óptima basada en Prioridad")
+st.title("🧠 AGENTE 6 – Planificador con Backlog Inteligente")
 
 # ============================================================
-# FASE 0 — GENERACIÓN DE OTs
+# PARÁMETROS
 # ============================================================
 
-HORIZONTE_DIAS = 14
+HORIZONTE_DIAS = 7        # Semana
 HORAS_POR_DIA = 8
 HORIZONTE_HORAS = HORIZONTE_DIAS * HORAS_POR_DIA
 
 capacidad_disciplina = {
-    "MEC": 6,
-    "ELE": 4,
-    "INS": 3,
-    "CIV": 3
+    "MEC":6,
+    "ELE":4,
+    "INS":3,
+    "CIV":3
 }
+
+# ============================================================
+# GENERADOR OTs
+# ============================================================
 
 def generar_ots(n):
 
-    disciplinas = ["MEC","ELE","INS","CIV"]
-    tipos = ["PREV","PRED","CORR"]
-    criticidades = ["Alta","Media","Baja"]
-    ubicaciones = ["Planta","Remota"]
+    disciplinas=["MEC","ELE","INS","CIV"]
+    tipos=["PREV","PRED","CORR"]
+    criticidades=["Alta","Media","Baja"]
 
     ots=[]
 
-    for i in range(1,n+1):
-
-        tipo=random.choices(tipos,[0.4,0.3,0.3])[0]
-        criticidad=random.choice(criticidades)
-        ubicacion=random.choice(ubicaciones)
-
-        dia_ini=random.randint(1,HORIZONTE_DIAS-2)
-        dia_fin=random.randint(dia_ini+1,HORIZONTE_DIAS)
+    for i in range(n):
 
         disc=random.sample(disciplinas,
                            random.choice([1,2]))
@@ -54,47 +49,28 @@ def generar_ots(n):
         tecnicos=[]
 
         for d in disc:
-            horas.append(str(random.choice([4,6,8,10])))
+            horas.append(str(random.choice([4,6,8])))
             tecnicos.append(str(random.choice([1,2])))
 
         ots.append({
-            "id":f"OT{i:03}",
-            "Tipo":tipo,
-            "Criticidad":criticidad,
-            "Dia_Tentativo":dia_ini,
-            "Dia_Limite":dia_fin,
+            "id":f"OT{i+1:03}",
+            "Tipo":random.choice(tipos),
+            "Criticidad":random.choice(criticidades),
+            "Dia_Tentativo":1,
+            "Dia_Limite":HORIZONTE_DIAS,
             "Disciplinas":" | ".join(disc),
             "Horas":" | ".join(horas),
-            "Tecnicos":" | ".join(tecnicos),
-            "Ubicacion":ubicacion
+            "Tecnicos":" | ".join(tecnicos)
         })
 
     return ots
 
 
-cantidad = st.slider("Cantidad OTs",10,150,50)
-raw_ots = generar_ots(cantidad)
-
-df_ots=pd.DataFrame(raw_ots)
-st.dataframe(df_ots,use_container_width=True)
+cantidad=st.slider("Cantidad OTs",10,120,50)
+raw_ots=generar_ots(cantidad)
 
 # ============================================================
-# FASE 1 — ANALISTA CONDICIÓN
-# ============================================================
-
-for ot in raw_ots:
-
-    if ot["Tipo"]=="CORR":
-        deg=0.9
-    elif ot["Tipo"]=="PRED":
-        deg=0.6
-    else:
-        deg=0.3
-
-    ot["Indice_Degradacion"]=deg
-
-# ============================================================
-# FASE 2 — PRIORIZACIÓN
+# PRIORIZACIÓN
 # ============================================================
 
 def criticidad_score(c):
@@ -105,37 +81,39 @@ def tipo_score(t):
 
 for ot in raw_ots:
 
+    degradacion={"CORR":0.9,"PRED":0.6,"PREV":0.3}[ot["Tipo"]]
+
     score=(
         tipo_score(ot["Tipo"])
         +criticidad_score(ot["Criticidad"])*10
-        +ot["Indice_Degradacion"]*20
+        +degradacion*20
     )
 
     ot["Score"]=int(score)
 
+df_prioridad=pd.DataFrame(raw_ots)\
+.sort_values("Score",ascending=False)
+
 st.subheader("📊 Lista Prioridad")
-st.dataframe(
-    pd.DataFrame(raw_ots)
-    .sort_values("Score",ascending=False)
-)
+st.dataframe(df_prioridad,use_container_width=True)
 
 # ============================================================
-# FASE 3 — MODELO CP-SAT
+# MODELO CP-SAT
 # ============================================================
 
 model=cp_model.CpModel()
 
-intervals_por_disciplina={d:[] for d in capacidad_disciplina}
+intervals={d:[] for d in capacidad_disciplina}
 
 start_vars={}
 end_vars={}
-atrasos={}
+exec_vars={}
 pesos={}
 
 for ot in raw_ots:
 
-    inicio_min=(ot["Dia_Tentativo"]-1)*HORAS_POR_DIA
-    fin_max=ot["Dia_Limite"]*HORAS_POR_DIA
+    inicio_min=0
+    fin_max=HORIZONTE_HORAS
 
     disciplinas=[d.strip() for d in ot["Disciplinas"].split("|")]
     horas=[int(h.strip()) for h in ot["Horas"].split("|")]
@@ -149,60 +127,66 @@ for ot in raw_ots:
 
         nombre=f"{ot['id']}_{disc}"
 
-        start=model.NewIntVar(inicio_min,fin_max-dur,
+        start=model.NewIntVar(0,fin_max-dur,
                               f"start_{nombre}")
 
-        end=model.NewIntVar(inicio_min+dur,fin_max,
+        end=model.NewIntVar(dur,fin_max,
                             f"end_{nombre}")
 
-        interval=model.NewIntervalVar(start,dur,end,
-                                      f"int_{nombre}")
+        ejecutada=model.NewBoolVar(
+            f"exec_{nombre}"
+        )
 
-        intervals_por_disciplina[disc].append(
+        interval=model.NewOptionalIntervalVar(
+            start,
+            dur,
+            end,
+            ejecutada,
+            f"int_{nombre}"
+        )
+
+        intervals[disc].append(
             (interval,demanda)
         )
 
-        atraso=model.NewIntVar(0,HORIZONTE_HORAS,
-                               f"delay_{nombre}")
-
-        model.Add(atraso>=end-fin_max)
-        model.Add(atraso>=0)
-
-        atrasos[nombre]=atraso
-        pesos[nombre]=ot["Score"]
-
         start_vars[nombre]=start
         end_vars[nombre]=end
+        exec_vars[nombre]=ejecutada
+        pesos[nombre]=ot["Score"]
 
 # ============================================================
-# FASE 4 — CAPACIDAD
+# CAPACIDAD
 # ============================================================
 
-for disc,intervalos in intervals_por_disciplina.items():
+for disc,vals in intervals.items():
 
-    if intervalos:
+    if vals:
 
         model.AddCumulative(
-            [i[0] for i in intervalos],
-            [i[1] for i in intervalos],
+            [v[0] for v in vals],
+            [v[1] for v in vals],
             capacidad_disciplina[disc]
         )
 
 # ============================================================
-# FASE 5 — OBJETIVO (PRIORIDAD REAL)
+# OBJETIVO
+# Ejecutar máximas OTs críticas
 # ============================================================
 
-costo_total=model.NewIntVar(0,10**9,"costo")
+costo=model.NewIntVar(0,10**9,"costo")
 
 model.Add(
-    costo_total==
-    sum(atrasos[n]*pesos[n] for n in atrasos)
+    costo==
+    sum(
+        pesos[n]*(1-exec_vars[n])
+        for n in exec_vars
+    )
 )
 
-model.Minimize(costo_total)
+model.Minimize(costo)
 
 # ============================================================
-# FASE 6 — SOLUCIÓN
+# SOLVER
 # ============================================================
 
 solver=cp_model.CpSolver()
@@ -218,62 +202,88 @@ if status in [cp_model.OPTIMAL,cp_model.FEASIBLE]:
 
     resultados=[]
 
-    for nombre,start in start_vars.items():
+    for nombre in start_vars:
 
-        inicio=solver.Value(start)
-        fin=solver.Value(end_vars[nombre])
+        ejec=solver.Value(exec_vars[nombre])
 
-        ot_id=nombre.split("_")[0]
-
-        dia_limite=next(
-            ot["Dia_Limite"]
-            for ot in raw_ots
-            if ot["id"]==ot_id
-        )
-
-        atraso=max(
-            0,
-            fin-dia_limite*HORAS_POR_DIA
-        )
+        if ejec==1:
+            inicio=solver.Value(start_vars[nombre])
+            dia=inicio//HORAS_POR_DIA+1
+        else:
+            dia=None
 
         resultados.append({
             "Bloque":nombre,
-            "OT":ot_id,
-            "Inicio":inicio,
-            "Fin":fin,
-            "Día Inicio":inicio//HORAS_POR_DIA+1,
-            "Atraso":atraso,
-            "Backlog":"SI" if atraso>0 else "NO"
+            "OT":nombre.split("_")[0],
+            "Día Programado":dia,
+            "Estado":
+            "PROGRAMADA" if ejec==1 else "PENDIENTE"
         })
 
     df=pd.DataFrame(resultados)
 
-    df_prog=df.sort_values(
-        ["Backlog","Inicio"]
-    )
+    programadas=df[df["Estado"]=="PROGRAMADA"]
+    pendientes=df[df["Estado"]=="PENDIENTE"]
 
-    st.subheader("✅ PROGRAMACIÓN FINAL")
-    st.dataframe(df_prog,use_container_width=True)
+    st.subheader("✅ PROGRAMADAS")
+    st.dataframe(programadas)
+
+    st.subheader("⏳ BACKLOG")
+    st.dataframe(pendientes)
+
+# ============================================================
+# REPROGRAMACIÓN AUTOMÁTICA
+# ============================================================
+
+    if len(pendientes)>0:
+
+        st.subheader("🔁 Reprogramación Semana Siguiente")
+
+        backlog_ids=pendientes["OT"].unique()
+
+        nuevas_ots=[]
+
+        for ot in raw_ots:
+
+            if ot["id"] in backlog_ids:
+
+                nuevo=ot.copy()
+                nuevo["Dia_Tentativo"]+=7
+                nuevo["Dia_Limite"]+=7
+                nuevas_ots.append(nuevo)
+
+        st.write(
+            f"{len(nuevas_ots)} OTs pasan a la siguiente semana"
+        )
+
+        st.dataframe(pd.DataFrame(nuevas_ots))
 
 # ============================================================
 # GANTT
 # ============================================================
 
-    df_prog["Inicio_dt"]=pd.to_datetime(
-        df_prog["Inicio"],unit="h")
+    if len(programadas)>0:
 
-    df_prog["Fin_dt"]=pd.to_datetime(
-        df_prog["Fin"],unit="h")
+        programadas["Inicio"]=(
+            programadas["Día Programado"]-1
+        )*HORAS_POR_DIA
 
-    fig=px.timeline(
-        df_prog,
-        x_start="Inicio_dt",
-        x_end="Fin_dt",
-        y="Bloque",
-        color="Backlog",
-        title="Programación Óptima"
-    )
+        programadas["Fin"]=programadas["Inicio"]+8
 
-    fig.update_yaxes(autorange="reversed")
+        programadas["Inicio_dt"]=pd.to_datetime(
+            programadas["Inicio"],unit="h")
 
-    st.plotly_chart(fig,use_container_width=True)
+        programadas["Fin_dt"]=pd.to_datetime(
+            programadas["Fin"],unit="h")
+
+        fig=px.timeline(
+            programadas,
+            x_start="Inicio_dt",
+            x_end="Fin_dt",
+            y="Bloque",
+            title="📅 Plan Semanal"
+        )
+
+        fig.update_yaxes(autorange="reversed")
+
+        st.plotly_chart(fig,use_container_width=True)
