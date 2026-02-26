@@ -1,191 +1,233 @@
+# ============================================================
+# AGENTE 6 – PLANIFICADOR SEMANAL INTELIGENTE
+# ============================================================
+
 import streamlit as st
 from ortools.sat.python import cp_model
 import pandas as pd
 import random
+import plotly.express as px
 
-st.title("🧠 AGENTE 6 — Planificador Semanal Inteligente")
+st.set_page_config(layout="wide")
 
-# =====================================================
+st.title("🧠 AGENTE 6 – Planificación Semanal")
+
+# ============================================================
 # PARÁMETROS
-# =====================================================
+# ============================================================
 
-SEMANAS = 4
-HORAS_SEMANA = 40
+HORAS_POR_DIA = 8
+DIAS_SEMANA = 5
+HORAS_SEMANA = HORAS_POR_DIA * DIAS_SEMANA
 
 capacidad_disciplina = {
-    "MEC":6,
-    "ELE":4,
-    "INS":3,
-    "CIV":3
+    "MEC": 6,
+    "ELE": 4,
+    "INS": 3,
+    "CIV": 3
 }
 
-# =====================================================
+# ============================================================
 # GENERAR OTs
-# =====================================================
+# ============================================================
 
 def generar_ots(n):
 
-    tipos=["CORR","PRED","PREV"]
-    criticidad=["Alta","Media","Baja"]
-    disciplinas=["MEC","ELE","INS","CIV"]
+    disciplinas = ["MEC","ELE","INS","CIV"]
+    tipos = ["PREV","PRED","CORR"]
+    criticidades = ["Alta","Media","Baja"]
 
     ots=[]
 
-    for i in range(n):
+    for i in range(1,n+1):
 
-        disc=random.choice(disciplinas)
+        disc=random.sample(disciplinas,
+                           random.choice([1,2]))
+
+        horas=[]
+        tecnicos=[]
+
+        for d in disc:
+            horas.append(str(random.choice([4,6,8])))
+            tecnicos.append(str(random.choice([1,2])))
+
+        tipo=random.choice(tipos)
+
+        deg = 0.9 if tipo=="CORR" else 0.6 if tipo=="PRED" else 0.3
+
+        score = (
+            {"CORR":100,"PRED":60,"PREV":40}[tipo]
+            + random.randint(1,3)*10
+            + deg*20
+        )
 
         ots.append({
             "id":f"OT{i:03}",
-            "Tipo":random.choice(tipos),
-            "Criticidad":random.choice(criticidad),
-            "Disciplina":disc,
-            "Duracion":random.choice([8,16,24]),
+            "Tipo":tipo,
+            "Score":int(score),
+            "Disciplinas":" | ".join(disc),
+            "Horas":" | ".join(horas),
+            "Tecnicos":" | ".join(tecnicos)
         })
 
     return ots
 
 
-raw_ots=generar_ots(50)
+cantidad = st.slider("Cantidad OTs Backlog",10,150,50)
 
-# =====================================================
-# PRIORIDAD
-# =====================================================
+raw_ots = generar_ots(cantidad)
 
-def score(ot):
-
-    tipo={"CORR":100,"PRED":60,"PREV":40}[ot["Tipo"]]
-    crit={"Alta":30,"Media":20,"Baja":10}[ot["Criticidad"]]
-
-    return tipo+crit
-
-for ot in raw_ots:
-    ot["Score"]=score(ot)
-
-df_prioridad=pd.DataFrame(raw_ots)\
+st.subheader("📋 Backlog Total")
+st.dataframe(
+    pd.DataFrame(raw_ots)
     .sort_values("Score",ascending=False)
+)
 
-st.subheader("📊 Lista Prioridad")
-st.dataframe(df_prioridad)
+# ============================================================
+# MODELO CP-SAT
+# ============================================================
 
-# =====================================================
-# MODELO
-# =====================================================
+model = cp_model.CpModel()
 
-model=cp_model.CpModel()
+intervals_por_disciplina = {d:[] for d in capacidad_disciplina}
 
-asignacion={}
-programada={}
+start_vars={}
+end_vars={}
+ejecucion={}
+pesos={}
 
 for ot in raw_ots:
 
-    asignacion[ot["id"]] = model.NewIntVar(
-        0,SEMANAS,
-        f"semana_{ot['id']}"
-    )
+    disciplinas=[d.strip() for d in ot["Disciplinas"].split("|")]
+    horas=[int(h.strip()) for h in ot["Horas"].split("|")]
+    tecnicos=[int(t.strip()) for t in ot["Tecnicos"].split("|")]
 
-    programada[ot["id"]] = model.NewBoolVar(
-        f"prog_{ot['id']}"
-    )
+    for i in range(len(disciplinas)):
 
-    model.Add(asignacion[ot["id"]] > 0)\
-         .OnlyEnforceIf(programada[ot["id"]])
+        disc=disciplinas[i]
+        dur=horas[i]
+        demanda=tecnicos[i]
 
-    model.Add(asignacion[ot["id"]] == 0)\
-         .OnlyEnforceIf(programada[ot["id"]].Not())
+        nombre=f"{ot['id']}_{disc}"
 
-# =====================================================
-# CAPACIDAD SEMANAL
-# =====================================================
+        ejecutar=model.NewBoolVar(f"exec_{nombre}")
 
-for s in range(1,SEMANAS+1):
+        start=model.NewIntVar(0,HORAS_SEMANA-dur,
+                              f"start_{nombre}")
 
-    for disc in capacidad_disciplina:
+        end=model.NewIntVar(dur,HORAS_SEMANA,
+                            f"end_{nombre}")
 
-        tareas=[]
-        duraciones=[]
-
-        for ot in raw_ots:
-
-            if ot["Disciplina"]==disc:
-
-                b=model.NewBoolVar(
-                    f"{ot['id']}_sem{s}"
-                )
-
-                model.Add(
-                    asignacion[ot["id"]]==s
-                ).OnlyEnforceIf(b)
-
-                model.Add(
-                    asignacion[ot["id"]]!=s
-                ).OnlyEnforceIf(b.Not())
-
-                tareas.append(b)
-                duraciones.append(ot["Duracion"])
-
-        model.Add(
-            sum(
-                tareas[i]*duraciones[i]
-                for i in range(len(tareas))
-            )
-            <= capacidad_disciplina[disc]*HORAS_SEMANA
+        interval=model.NewOptionalIntervalVar(
+            start,
+            dur,
+            end,
+            ejecutar,
+            f"int_{nombre}"
         )
 
-# =====================================================
-# OBJETIVO
-# =====================================================
+        # SOLO SI SE EJECUTA
+        model.Add(end<=HORAS_SEMANA).OnlyEnforceIf(ejecutar)
 
-model.Maximize(
-    sum(
-        programada[ot["id"]]*ot["Score"]
-        for ot in raw_ots
-    )
+        intervals_por_disciplina[disc].append(
+            (interval,demanda)
+        )
+
+        start_vars[nombre]=start
+        end_vars[nombre]=end
+        ejecucion[nombre]=ejecutar
+        pesos[nombre]=ot["Score"]
+
+# ============================================================
+# CAPACIDAD SEMANAL
+# ============================================================
+
+for disc,intervalos in intervals_por_disciplina.items():
+
+    if intervalos:
+
+        model.AddCumulative(
+            [i[0] for i in intervalos],
+            [i[1] for i in intervalos],
+            capacidad_disciplina[disc]
+        )
+
+# ============================================================
+# OBJETIVO
+# MAXIMIZAR IMPORTANCIA EJECUTADA
+# ============================================================
+
+beneficio=model.NewIntVar(0,10**9,"beneficio")
+
+model.Add(
+    beneficio==
+    sum(pesos[n]*ejecucion[n]
+        for n in ejecucion)
 )
 
-# =====================================================
+model.Maximize(beneficio)
+
+# ============================================================
 # SOLVER
-# =====================================================
+# ============================================================
 
 solver=cp_model.CpSolver()
-solver.parameters.max_time_in_seconds=10
+solver.parameters.max_time_in_seconds=15
 
-solver.Solve(model)
+status=solver.Solve(model)
 
-# =====================================================
+# ============================================================
 # RESULTADOS
-# =====================================================
+# ============================================================
 
-resultado=[]
+if status in [cp_model.OPTIMAL,cp_model.FEASIBLE]:
 
-for ot in raw_ots:
+    programadas=[]
+    pendientes=[]
 
-    semana=solver.Value(asignacion[ot["id"]])
+    for nombre in ejecucion:
 
-    resultado.append({
-        "OT":ot["id"],
-        "Tipo":ot["Tipo"],
-        "Criticidad":ot["Criticidad"],
-        "Score":ot["Score"],
-        "Semana":
-            "BACKLOG"
-            if semana==0
-            else f"Semana {semana}"
-    })
+        ot_id=nombre.split("_")[0]
 
-df=pd.DataFrame(resultado)
+        if solver.Value(ejecucion[nombre])==1:
 
-st.subheader("📅 PLAN SEMANAL")
+            inicio=solver.Value(start_vars[nombre])
 
-for s in range(1,SEMANAS+1):
+            programadas.append({
+                "OT":ot_id,
+                "Bloque":nombre,
+                "Dia":inicio//HORAS_POR_DIA+1
+            })
 
-    st.write(f"### ✅ Semana {s}")
-    st.dataframe(
-        df[df["Semana"]==f"Semana {s}"]
-        .sort_values("Score",ascending=False)
-    )
+        else:
+            pendientes.append({"OT":ot_id})
 
-st.write("### ⚠️ Backlog / Mes siguiente")
-st.dataframe(
-    df[df["Semana"]=="BACKLOG"]
-)
+    df_prog=pd.DataFrame(programadas)
+    df_backlog=pd.DataFrame(pendientes)
+
+    st.subheader("✅ PLAN SEMANAL")
+    st.dataframe(df_prog)
+
+    st.subheader("📦 OTs REPROGRAMADAS")
+    st.dataframe(df_backlog)
+
+# ============================================================
+# GANTT
+# ============================================================
+
+    if not df_prog.empty:
+
+        df_prog["Inicio"]=df_prog["Dia"]*8
+        df_prog["Fin"]=df_prog["Inicio"]+8
+
+        fig=px.timeline(
+            df_prog,
+            x_start="Inicio",
+            x_end="Fin",
+            y="Bloque",
+            title="Plan Semanal"
+        )
+
+        fig.update_yaxes(autorange="reversed")
+
+        st.plotly_chart(fig,use_container_width=True)
