@@ -36,11 +36,12 @@ def generar_orden(id_orden):
     }
 
 # Generar órdenes
-num_ordenes = st.slider("Número de órdenes a generar", min_value=1, max_value=100, value=20)
+num_ordenes = st.slider("Número de órdenes a generar", min_value=1, max_value=100, value=100)
 ordenes = [generar_orden(i+1) for i in range(num_ordenes)]
 df_ordenes = pd.DataFrame(ordenes)
 
 # Mostrar tabla completa
 st.subheader("Todas las Órdenes de Trabajo")
 st.dataframe(df_ordenes)
+
 
