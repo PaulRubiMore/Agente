@@ -285,7 +285,7 @@ with st.expander("FASE 5 – Restricciones de Capacidad", expanded=True):
     st.success("Restricciones aplicadas correctamente.")
 
 # ============================================================
-# FASE 6 – FUNCIÓN OBJETIVO INDUSTRIAL ESTABLE
+# FASE 6 – FUNCIÓN OBJETIVO INDUSTRIAL CORREGIDA
 # ============================================================
 
 with st.expander("FASE 6 – Función Objetivo Industrial", expanded=True):
@@ -295,7 +295,7 @@ with st.expander("FASE 6 – Función Objetivo Industrial", expanded=True):
     bloques_tempranos = []
 
     # -----------------------------
-    # ATRASOS
+    # CÁLCULO DE ATRASOS
     # -----------------------------
     for nombre, start in start_vars.items():
 
@@ -312,7 +312,7 @@ with st.expander("FASE 6 – Función Objetivo Industrial", expanded=True):
         peso = pesos_criticidad[ot["Criticidad"]]
         atrasos.append(peso * atraso)
 
-        # Penalización si inicia en la primera semana
+        # Penalización si se ejecuta en la primera semana
         es_temprano = model.NewBoolVar(f"temprano_{nombre}")
         model.Add(start < 5 * HORAS_POR_DIA).OnlyEnforceIf(es_temprano)
         model.Add(start >= 5 * HORAS_POR_DIA).OnlyEnforceIf(es_temprano.Not())
@@ -322,53 +322,77 @@ with st.expander("FASE 6 – Función Objetivo Industrial", expanded=True):
     model.Add(penalizacion_temprana == sum(bloques_tempranos))
 
     # -----------------------------
-    # CARGA DIARIA REALISTA
+    # BALANCE DE CARGA
     # -----------------------------
-    carga_diaria_horas = []
+    if not desactivar_balance_carga:
 
-    for dia in range(dias_horizonte):
+        carga_diaria_horas = []
 
-        inicio_dia = dia * HORAS_POR_DIA
-        fin_dia = (dia + 1) * HORAS_POR_DIA
-        contribuciones = []
+        for dia in range(dias_horizonte):
 
-        for nombre, start in start_vars.items():
-            end = end_vars[nombre]
+            inicio_dia = dia * HORAS_POR_DIA
+            fin_dia = (dia + 1) * HORAS_POR_DIA
+            contribuciones = []
 
-            activo = model.NewBoolVar(f"activo_{dia}_{nombre}")
+            for intervalo, duracion in todos_intervalos:
 
-            model.Add(start < fin_dia).OnlyEnforceIf(activo)
-            model.Add(end > inicio_dia).OnlyEnforceIf(activo)
-            model.Add(start >= fin_dia).OnlyEnforceIf(activo.Not())
-            model.Add(end <= inicio_dia).OnlyEnforceIf(activo.Not())
+                nombre_intervalo = intervalo.Name()
+                base_name = nombre_intervalo.replace("interval_", "", 1)
+                start = start_vars[base_name]
+                end = end_vars[base_name]
 
-            horas_dia = model.NewIntVar(0, HORAS_POR_DIA, f"horas_dia_{dia}_{nombre}")
+                activo = model.NewBoolVar(f"activo_{dia}_{nombre_intervalo}")
 
-            model.Add(horas_dia == HORAS_POR_DIA).OnlyEnforceIf(activo)
-            model.Add(horas_dia == 0).OnlyEnforceIf(activo.Not())
+                model.Add(start < fin_dia).OnlyEnforceIf(activo)
+                model.Add(end > inicio_dia).OnlyEnforceIf(activo)
+                model.Add(start >= fin_dia).OnlyEnforceIf(activo.Not())
+                model.Add(end <= inicio_dia).OnlyEnforceIf(activo.Not())
 
-            contribuciones.append(horas_dia)
+                contrib = model.NewIntVar(0, duracion, f"contrib_{dia}_{nombre_intervalo}")
+                model.Add(contrib == duracion).OnlyEnforceIf(activo)
+                model.Add(contrib == 0).OnlyEnforceIf(activo.Not())
 
-        carga_dia = model.NewIntVar(0, 1000, f"carga_dia_{dia}")
-        model.Add(carga_dia == sum(contribuciones))
-        carga_diaria_horas.append(carga_dia)
+                contribuciones.append(contrib)
 
-    # Minimizar el máximo día (balance suave)
-    max_carga_diaria = model.NewIntVar(0, 1000, "max_carga_diaria")
-    model.AddMaxEquality(max_carga_diaria, carga_diaria_horas)
+            carga_dia = model.NewIntVar(0, 1000, f"carga_dia_{dia}")
+            model.Add(carga_dia == sum(contribuciones))
+            carga_diaria_horas.append(carga_dia)
+
+        max_carga_diaria = model.NewIntVar(0, 1000, "max_carga_diaria")
+        model.AddMaxEquality(max_carga_diaria, carga_diaria_horas)
+
+    else:
+        max_carga_diaria = 0
 
     # -----------------------------
-    # FUNCIÓN OBJETIVO FINAL ESTABLE
+    # MAKESPAN (Duración total del plan)
+    # -----------------------------
+    makespan = model.NewIntVar(0, HORIZONTE_HORAS, "makespan")
+    model.AddMaxEquality(makespan, list(end_vars.values()))
+
+    # -----------------------------
+    # FUNCIÓN OBJETIVO CORREGIDA
     # -----------------------------
 
-    model.Minimize(
-        peso_atrasos * sum(atrasos)
-        + peso_carga * max_carga_diaria
-        + peso_temprano * penalizacion_temprana
-    )
+    # Peso dinámico para usar mejor el horizonte
+    peso_makespan = 1
 
-    st.write("Objetivo: minimizar atrasos + balance suave + penalización temprana")
+    if desactivar_balance_carga:
+        model.Minimize(
+            peso_atrasos * sum(atrasos)
+            + peso_temprano * penalizacion_temprana
+            + peso_makespan * makespan
+        )
+        st.write("Objetivo: atrasos + penalización temprana + uso del horizonte")
 
+    else:
+        model.Minimize(
+            peso_atrasos * sum(atrasos)
+            + peso_carga * max_carga_diaria
+            + peso_temprano * penalizacion_temprana
+            + peso_makespan * makespan
+        )
+        st.write("Objetivo: atrasos + balance de carga + penalización temprana + uso del horizonte")
 
 # ============================================================
 # FASE 7 – RESOLUCIÓN Y RESULTADOS
@@ -668,7 +692,5 @@ with st.expander("FASE 7 – Resolución del Modelo", expanded=True):
         st.write(f"OTs con ventana insuficiente (después de ajuste): {ventanas_ajustadas}")
         
         st.info("Prueba activando 'Ignorar fechas iniciales' y/o 'Desactivar balance de carga' en el panel lateral.")
-
-
 
 
