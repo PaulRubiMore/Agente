@@ -1,6 +1,9 @@
+import streamlit as st
 import random
 from datetime import datetime, timedelta
 import pandas as pd
+
+st.title("🛠️ Generador de Órdenes de Trabajo")
 
 # Parámetros
 disciplinas_posibles = ['Eléctrico', 'Mecánico', 'Instrumentista', 'Civil']
@@ -24,7 +27,7 @@ def generar_orden(id_orden):
     return {
         'ID': id_orden,
         'Criticidad': criticidad,
-        'Fecha': fecha.date(),
+        'Fecha': fecha.strftime("%Y-%m-%d"),
         'Ubicación': ubicacion,
         'Camión': camion,
         'Disciplinas': ', '.join(disciplinas),
@@ -32,7 +35,18 @@ def generar_orden(id_orden):
         'Técnicos por disciplina': ', '.join([f"{d}:{t}" for d,t in tecnicos.items()])
     }
 
-# Generar 10 órdenes de trabajo
-ordenes = [generar_orden(i+1) for i in range(10)]
+# Generar órdenes
+num_ordenes = st.slider("Número de órdenes a generar", min_value=1, max_value=50, value=10)
+ordenes = [generar_orden(i+1) for i in range(num_ordenes)]
 df_ordenes = pd.DataFrame(ordenes)
-print(df_ordenes)
+
+# Mostrar tabla completa
+st.subheader("Todas las Órdenes de Trabajo")
+st.dataframe(df_ordenes)
+
+# Filtro por criticidad
+filtro_criticidad = st.multiselect("Filtrar por Criticidad", options=criticidades, default=criticidades)
+df_filtrado = df_ordenes[df_ordenes['Criticidad'].isin(filtro_criticidad)]
+
+st.subheader("Órdenes filtradas")
+st.dataframe(df_filtrado)
