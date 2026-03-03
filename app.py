@@ -1,6 +1,6 @@
 # ============================================================
 # SISTEMA MULTI-AGENTE DE MANTENIMIENTO
-# VERSIÓN CORREGIDA – MES LABORAL COMPLETO
+# VERSIÓN COMPLETA – MES LABORAL REAL
 # ============================================================
 
 import streamlit as st
@@ -10,31 +10,33 @@ import random
 from datetime import datetime, timedelta
 import plotly.express as px
 
+# ============================================================
+# CONFIGURACIÓN GENERAL
+# ============================================================
+
 st.set_page_config(layout="wide")
 st.title("🧠 AGENTE 6 – Programador Inteligente (CP-SAT)")
-st.markdown("Simulación Multi-Agente – Planificación Óptima Marzo 2026")
-
-# ============================================================
-# PARÁMETROS GENERALES
-# ============================================================
+st.markdown("Simulación Multi-Agente – Planificación Marzo 2026")
 
 DIAS_MES = 31
 HORAS_POR_DIA = 6
 HORIZONTE_HORAS = DIAS_MES * HORAS_POR_DIA
 FECHA_INICIO = datetime(2026, 3, 1)
 
-st.write(f"Horizonte laboral: {DIAS_MES} días x {HORAS_POR_DIA}h = {HORIZONTE_HORAS} horas")
+st.write(f"Horizonte laboral: {DIAS_MES} días × {HORAS_POR_DIA}h = {HORIZONTE_HORAS} horas")
 
 # ============================================================
 # PANEL LATERAL
 # ============================================================
 
 with st.sidebar:
-    st.header("⚙️ Parámetros del Modelo")
+
+    st.header("⚙️ Parámetros")
 
     num_ots = st.slider("Número de OTs", 50, 200, 60, step=10)
 
     st.subheader("Capacidad Técnicos")
+
     cap_mec = st.number_input("MEC", 1, 20, 6)
     cap_ele = st.number_input("ELE", 1, 20, 4)
     cap_ins = st.number_input("INS", 1, 20, 3)
@@ -49,15 +51,24 @@ with st.sidebar:
 
     camionetas = st.number_input("Camionetas", 1, 20, 3)
 
+    st.subheader("Opciones")
+
+    activar_balance = st.checkbox("Activar balance de carga diaria", value=True)
+    peso_atraso = st.slider("Peso atraso", 1, 50, 10)
+    peso_balance = st.slider("Peso balance", 1, 300, 100)
+    peso_temprano = st.slider("Peso inicio temprano", 0, 20, 2)
+
 # ============================================================
-# FASE 0 – GENERACIÓN OTs
+# FASE 0 – GENERADOR OTs
 # ============================================================
 
 def generar_ots(n):
+
     random.seed(42)
+
     tipos = ["PREV", "PRED", "CORR"]
     criticidades = ["Alta", "Media", "Baja"]
-    disciplinas = ["MEC", "ELE", "INS", "CIV"]
+    disciplinas_posibles = ["MEC", "ELE", "INS", "CIV", "MEC | ELE", "MEC | INS"]
 
     ots = []
 
@@ -65,22 +76,33 @@ def generar_ots(n):
 
         tipo = random.choice(tipos)
         criticidad = random.choice(criticidades)
-        disc = random.choice(disciplinas)
+        disciplina = random.choice(disciplinas_posibles)
 
-        horas = random.choice([4, 6, 8, 10, 12])
-        tecnicos = random.randint(1, 2)
+        if "|" in disciplina:
+            discos = [d.strip() for d in disciplina.split("|")]
+            horas_list = [random.choice([4,6,8]) for _ in discos]
+            tecnicos_list = [random.randint(1,2) for _ in discos]
+            horas_str = " | ".join(map(str, horas_list))
+            tecnicos_str = " | ".join(map(str, tecnicos_list))
+            duracion_total = sum(horas_list)
+        else:
+            horas = random.choice([4,6,8,10,12])
+            tecnicos = random.randint(1,2)
+            horas_str = str(horas)
+            tecnicos_str = str(tecnicos)
+            duracion_total = horas
 
         dia_inicio = random.randint(1, DIAS_MES)
-        dias_necesarios = (horas + HORAS_POR_DIA - 1) // HORAS_POR_DIA
+        dias_necesarios = (duracion_total + HORAS_POR_DIA - 1) // HORAS_POR_DIA
         dia_limite = min(DIAS_MES, dia_inicio + dias_necesarios + random.randint(0,5))
 
         ots.append({
             "id": f"OT{i:03}",
             "Tipo": tipo,
             "Criticidad": criticidad,
-            "Disciplina": disc,
-            "Horas": horas,
-            "Tecnicos": tecnicos,
+            "Disciplinas": disciplina,
+            "Horas": horas_str,
+            "Tecnicos": tecnicos_str,
             "Fecha_Inicial": FECHA_INICIO + timedelta(days=dia_inicio - 1),
             "Fecha_Limite": FECHA_INICIO + timedelta(days=dia_limite - 1),
             "Ubicacion": random.choice(["Planta", "Remota"])
@@ -88,10 +110,11 @@ def generar_ots(n):
 
     return ots
 
+
 raw_ots = generar_ots(num_ots)
 df_ots = pd.DataFrame(raw_ots)
 
-st.subheader("📋 OTs Generadas")
+st.subheader("📋 Órdenes Generadas")
 st.dataframe(df_ots, use_container_width=True)
 
 # ============================================================
@@ -106,30 +129,46 @@ demandas_camionetas = []
 
 start_vars = {}
 end_vars = {}
+todos_intervalos = []
 
 for ot in raw_ots:
 
     dias_desde_inicio = max(0, (ot["Fecha_Inicial"] - FECHA_INICIO).days)
     inicio_min = dias_desde_inicio * HORAS_POR_DIA
 
-    duracion = ot["Horas"]
-    demanda = ot["Tecnicos"]
-    disc = ot["Disciplina"]
+    disciplinas = [d.strip() for d in ot["Disciplinas"].split("|")]
+    horas = [int(h.strip()) for h in ot["Horas"].split("|")]
+    tecnicos = [int(t.strip()) for t in ot["Tecnicos"].split("|")]
 
-    nombre = ot["id"]
+    bloques = []
 
-    start = model.NewIntVar(inicio_min, HORIZONTE_HORAS - duracion, f"start_{nombre}")
-    end = model.NewIntVar(inicio_min + duracion, HORIZONTE_HORAS, f"end_{nombre}")
-    interval = model.NewIntervalVar(start, duracion, end, f"interval_{nombre}")
+    for i in range(len(disciplinas)):
 
-    start_vars[nombre] = start
-    end_vars[nombre] = end
+        disc = disciplinas[i]
+        dur = horas[i]
+        demanda = tecnicos[i]
 
-    intervals_por_disciplina[disc].append((interval, demanda))
+        nombre = f"{ot['id']}_{disc}"
 
-    if ot["Ubicacion"] == "Remota":
-        intervalos_camionetas.append(interval)
-        demandas_camionetas.append(1)
+        start = model.NewIntVar(inicio_min, HORIZONTE_HORAS - dur, f"start_{nombre}")
+        end = model.NewIntVar(inicio_min + dur, HORIZONTE_HORAS, f"end_{nombre}")
+        interval = model.NewIntervalVar(start, dur, end, f"interval_{nombre}")
+
+        start_vars[nombre] = start
+        end_vars[nombre] = end
+
+        intervals_por_disciplina[disc].append((interval, demanda))
+        todos_intervalos.append((interval, dur))
+
+        if ot["Ubicacion"] == "Remota":
+            intervalos_camionetas.append(interval)
+            demandas_camionetas.append(1)
+
+        bloques.append(nombre)
+
+    # Precedencia en serie
+    for i in range(len(bloques)-1):
+        model.Add(start_vars[bloques[i+1]] >= end_vars[bloques[i]])
 
 # ============================================================
 # FASE 2 – RESTRICCIONES
@@ -151,18 +190,21 @@ if intervalos_camionetas:
     )
 
 # ============================================================
-# FASE 3 – ATRASOS
+# FASE 3 – FUNCIÓN OBJETIVO
 # ============================================================
 
 atrasos = []
+bloques_tempranos = []
 
-for ot in raw_ots:
+for nombre in start_vars:
 
-    nombre = ot["id"]
+    ot_id = nombre.split("_")[0]
+    ot = next(o for o in raw_ots if o["id"] == ot_id)
+
     fin = end_vars[nombre]
 
-    dias_hasta_limite = max(0, (ot["Fecha_Limite"] - FECHA_INICIO).days + 1)
-    limite_horas = dias_hasta_limite * HORAS_POR_DIA
+    dias_limite = max(0, (ot["Fecha_Limite"] - FECHA_INICIO).days + 1)
+    limite_horas = dias_limite * HORAS_POR_DIA
 
     atraso = model.NewIntVar(0, HORIZONTE_HORAS, f"atraso_{nombre}")
     model.Add(atraso >= fin - limite_horas)
@@ -170,14 +212,71 @@ for ot in raw_ots:
 
     atrasos.append(atraso)
 
-model.Minimize(sum(atrasos))
+    start = start_vars[nombre]
+    temprano = model.NewBoolVar(f"temprano_{nombre}")
+    model.Add(start < 5 * HORAS_POR_DIA).OnlyEnforceIf(temprano)
+    model.Add(start >= 5 * HORAS_POR_DIA).OnlyEnforceIf(temprano.Not())
+    bloques_tempranos.append(temprano)
+
+penalizacion_temprana = model.NewIntVar(0, len(bloques_tempranos), "penalizacion_temprana")
+model.Add(penalizacion_temprana == sum(bloques_tempranos))
+
+if activar_balance:
+
+    carga_diaria = []
+
+    for dia in range(DIAS_MES):
+
+        inicio_dia = dia * HORAS_POR_DIA
+        fin_dia = (dia+1) * HORAS_POR_DIA
+
+        contribuciones = []
+
+        for intervalo, duracion in todos_intervalos:
+
+            base = intervalo.Name().replace("interval_", "")
+            start = start_vars[base]
+            end = end_vars[base]
+
+            activo = model.NewBoolVar(f"activo_{dia}_{base}")
+
+            model.Add(start < fin_dia).OnlyEnforceIf(activo)
+            model.Add(end > inicio_dia).OnlyEnforceIf(activo)
+            model.Add(start >= fin_dia).OnlyEnforceIf(activo.Not())
+            model.Add(end <= inicio_dia).OnlyEnforceIf(activo.Not())
+
+            contrib = model.NewIntVar(0, duracion, f"contrib_{dia}_{base}")
+            model.Add(contrib == duracion).OnlyEnforceIf(activo)
+            model.Add(contrib == 0).OnlyEnforceIf(activo.Not())
+
+            contribuciones.append(contrib)
+
+        carga = model.NewIntVar(0, 1000, f"carga_{dia}")
+        model.Add(carga == sum(contribuciones))
+        carga_diaria.append(carga)
+
+    max_carga = model.NewIntVar(0, 1000, "max_carga")
+    model.AddMaxEquality(max_carga, carga_diaria)
+
+    model.Minimize(
+        peso_atraso * sum(atrasos)
+        + peso_balance * max_carga
+        + peso_temprano * penalizacion_temprana
+    )
+
+else:
+
+    model.Minimize(
+        peso_atraso * sum(atrasos)
+        + peso_temprano * penalizacion_temprana
+    )
 
 # ============================================================
 # FASE 4 – RESOLUCIÓN
 # ============================================================
 
 solver = cp_model.CpSolver()
-solver.parameters.max_time_in_seconds = 30
+solver.parameters.max_time_in_seconds = 60
 status = solver.Solve(model)
 
 # ============================================================
@@ -188,46 +287,38 @@ if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
 
     resultados = []
 
-    for ot in raw_ots:
+    for nombre in start_vars:
 
-        nombre = ot["id"]
         inicio = solver.Value(start_vars[nombre])
         fin = solver.Value(end_vars[nombre])
 
         dia_inicio = inicio // HORAS_POR_DIA
         dia_fin = fin // HORAS_POR_DIA
 
-        fecha_inicio_prog = FECHA_INICIO + timedelta(days=dia_inicio)
-        fecha_fin_prog = FECHA_INICIO + timedelta(days=dia_fin)
-
         resultados.append({
-            "OT": nombre,
-            "Disciplina": ot["Disciplina"],
+            "Bloque": nombre,
+            "OT": nombre.split("_")[0],
             "Inicio (h)": inicio,
             "Fin (h)": fin,
-            "Inicio_dt": fecha_inicio_prog,
-            "Fin_dt": fecha_fin_prog
+            "Inicio_dt": FECHA_INICIO + timedelta(days=dia_inicio),
+            "Fin_dt": FECHA_INICIO + timedelta(days=dia_fin)
         })
 
-    df = pd.DataFrame(resultados)
+    df = pd.DataFrame(resultados).sort_values("Inicio (h)")
 
-    st.subheader("📊 Resultado Programación")
+    st.subheader("📊 Programación Final")
     st.dataframe(df, use_container_width=True)
-
-    # ============================================================
-    # GANTT
-    # ============================================================
 
     fig = px.timeline(
         df,
         x_start="Inicio_dt",
         x_end="Fin_dt",
         y="OT",
-        color="Disciplina",
-        title="📅 Gantt – Mes Completo Marzo 2026"
+        color="OT",
+        title="📅 Gantt – Mes Completo"
     )
 
-    fig.update_layout(height=900)
+    fig.update_layout(height=1000)
     fig.update_yaxes(autorange="reversed")
     fig.update_xaxes(range=[FECHA_INICIO, FECHA_INICIO + timedelta(days=DIAS_MES)])
 
