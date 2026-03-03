@@ -285,7 +285,7 @@ with st.expander("FASE 5 – Restricciones de Capacidad", expanded=True):
     st.success("Restricciones aplicadas correctamente.")
 
 # ============================================================
-# FASE 6 – FUNCIÓN OBJETIVO INDUSTRIAL BALANCEADA
+# FASE 6 – FUNCIÓN OBJETIVO INDUSTRIAL ESTABLE
 # ============================================================
 
 with st.expander("FASE 6 – Función Objetivo Industrial", expanded=True):
@@ -295,7 +295,7 @@ with st.expander("FASE 6 – Función Objetivo Industrial", expanded=True):
     bloques_tempranos = []
 
     # -----------------------------
-    # CÁLCULO DE ATRASOS
+    # ATRASOS
     # -----------------------------
     for nombre, start in start_vars.items():
 
@@ -322,7 +322,7 @@ with st.expander("FASE 6 – Función Objetivo Industrial", expanded=True):
     model.Add(penalizacion_temprana == sum(bloques_tempranos))
 
     # -----------------------------
-    # BALANCE REAL POR PROMEDIO
+    # CARGA DIARIA REALISTA
     # -----------------------------
     carga_diaria_horas = []
 
@@ -332,54 +332,42 @@ with st.expander("FASE 6 – Función Objetivo Industrial", expanded=True):
         fin_dia = (dia + 1) * HORAS_POR_DIA
         contribuciones = []
 
-        for intervalo, duracion in todos_intervalos:
+        for nombre, start in start_vars.items():
+            end = end_vars[nombre]
 
-            nombre_intervalo = intervalo.Name()
-            base_name = nombre_intervalo.replace("interval_", "", 1)
-            start = start_vars[base_name]
-            end = end_vars[base_name]
-
-            activo = model.NewBoolVar(f"activo_{dia}_{nombre_intervalo}")
+            activo = model.NewBoolVar(f"activo_{dia}_{nombre}")
 
             model.Add(start < fin_dia).OnlyEnforceIf(activo)
             model.Add(end > inicio_dia).OnlyEnforceIf(activo)
             model.Add(start >= fin_dia).OnlyEnforceIf(activo.Not())
             model.Add(end <= inicio_dia).OnlyEnforceIf(activo.Not())
 
-            contrib = model.NewIntVar(0, duracion, f"contrib_{dia}_{nombre_intervalo}")
-            model.Add(contrib == duracion).OnlyEnforceIf(activo)
-            model.Add(contrib == 0).OnlyEnforceIf(activo.Not())
+            horas_dia = model.NewIntVar(0, HORAS_POR_DIA, f"horas_dia_{dia}_{nombre}")
 
-            contribuciones.append(contrib)
+            model.Add(horas_dia == HORAS_POR_DIA).OnlyEnforceIf(activo)
+            model.Add(horas_dia == 0).OnlyEnforceIf(activo.Not())
+
+            contribuciones.append(horas_dia)
 
         carga_dia = model.NewIntVar(0, 1000, f"carga_dia_{dia}")
         model.Add(carga_dia == sum(contribuciones))
         carga_diaria_horas.append(carga_dia)
 
-    # -----------------------------
-    # CARGA PROMEDIO OBJETIVO
-    # -----------------------------
-    total_horas_modelo = sum(d for (_, d) in todos_intervalos)
-    carga_objetivo = total_horas_modelo // dias_horizonte
-
-    desviaciones = []
-
-    for dia in range(dias_horizonte):
-        desviacion = model.NewIntVar(0, 1000, f"desviacion_{dia}")
-        model.AddAbsEquality(desviacion, carga_diaria_horas[dia] - carga_objetivo)
-        desviaciones.append(desviacion)
+    # Minimizar el máximo día (balance suave)
+    max_carga_diaria = model.NewIntVar(0, 1000, "max_carga_diaria")
+    model.AddMaxEquality(max_carga_diaria, carga_diaria_horas)
 
     # -----------------------------
-    # FUNCIÓN OBJETIVO FINAL
+    # FUNCIÓN OBJETIVO FINAL ESTABLE
     # -----------------------------
 
     model.Minimize(
         peso_atrasos * sum(atrasos)
-        + peso_carga * sum(desviaciones)
+        + peso_carga * max_carga_diaria
         + peso_temprano * penalizacion_temprana
     )
 
-    st.write("Objetivo: minimizar atrasos + distribuir carga en todo el horizonte + penalización temprana")
+    st.write("Objetivo: minimizar atrasos + balance suave + penalización temprana")
 
 
 # ============================================================
@@ -680,6 +668,7 @@ with st.expander("FASE 7 – Resolución del Modelo", expanded=True):
         st.write(f"OTs con ventana insuficiente (después de ajuste): {ventanas_ajustadas}")
         
         st.info("Prueba activando 'Ignorar fechas iniciales' y/o 'Desactivar balance de carga' en el panel lateral.")
+
 
 
 
