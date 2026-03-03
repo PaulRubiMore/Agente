@@ -1,4 +1,4 @@
-no te emociones como se vera solo quiero que se vea de manera decendente la informacion import streamlit as st
+import streamlit as st
 import pandas as pd
 import random
 from datetime import datetime, timedelta
@@ -140,3 +140,4 @@ st.dataframe(
     use_container_width=True,
     height=100
 )
+
