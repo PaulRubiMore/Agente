@@ -101,5 +101,46 @@ st.dataframe(
     height=700
 )
 
+# ============================================================
+# FASE 1 – PRIORIZACIÓN INTELIGENTE
+# ============================================================
+
+st.subheader("FASE 1 – Priorización de Órdenes")
+
+# Diccionarios de ponderación
+peso_tipo = {
+    "Correctiva": 3,
+    "Predictiva": 2,
+    "Preventiva": 1
+}
+
+peso_criticidad = {
+    "Alta": 3,
+    "Media": 2,
+    "Baja": 1
+}
+
+# Calcular puntaje
+df_ordenes["Peso_Tipo"] = df_ordenes["Tipo"].map(peso_tipo)
+df_ordenes["Peso_Criticidad"] = df_ordenes["Criticidad"].map(peso_criticidad)
+
+df_ordenes["Prioridad"] = (
+    df_ordenes["Peso_Tipo"] * 10 +
+    df_ordenes["Peso_Criticidad"]
+)
+
+# Ordenar de mayor a menor prioridad
+df_priorizadas = df_ordenes.sort_values(
+    by="Prioridad",
+    ascending=False
+).reset_index(drop=True)
+
+st.dataframe(
+    df_priorizadas,
+    use_container_width=True,
+    height=700
+)
+
+
 
 
