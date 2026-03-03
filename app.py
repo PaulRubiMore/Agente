@@ -1,5 +1,5 @@
 # ============================================================
-# PLANIFICADOR INDUSTRIAL MENSUAL CON REPROGRAMACIÓN AUTOMÁTICA
+# PLANIFICADOR MENSUAL CON CONTROL POR TÉCNICO Y LÍMITE DIARIO
 # ============================================================
 
 import streamlit as st
@@ -9,7 +9,7 @@ import random
 from datetime import datetime, timedelta
 
 st.set_page_config(layout="wide")
-st.title("🧠 Planificador Mensual Inteligente")
+st.title("🧠 Planificador con Límite Diario por Técnico")
 
 # ============================================================
 # PARÁMETROS
@@ -22,72 +22,53 @@ FECHA_INICIO = datetime(2026, 3, 1)
 
 with st.sidebar:
     st.header("Capacidad")
-    cap_mec = st.number_input("MEC", 1, 20, 4)
-    cap_ele = st.number_input("ELE", 1, 20, 3)
-    cap_ins = st.number_input("INS", 1, 20, 2)
-    cap_civ = st.number_input("CIV", 1, 20, 2)
-    camionetas = st.number_input("Camionetas", 1, 10, 2)
+    cap_mec = st.number_input("Técnicos MEC", 1, 10, 3)
+    cap_ele = st.number_input("Técnicos ELE", 1, 10, 2)
+    camionetas = st.number_input("Camionetas", 1, 5, 2)
+    num_ots = st.slider("Número OTs", 10, 60, 30)
 
-    num_ots = st.slider("Número de OTs", 20, 100, 40)
-
-capacidad = {
-    "MEC": cap_mec,
-    "ELE": cap_ele,
-    "INS": cap_ins,
-    "CIV": cap_civ
+# Crear técnicos individuales
+tecnicos = {
+    "MEC": [f"MEC_{i}" for i in range(cap_mec)],
+    "ELE": [f"ELE_{i}" for i in range(cap_ele)]
 }
 
 # ============================================================
-# GENERADOR DE OTs
+# GENERADOR OTs
 # ============================================================
 
 def generar_ots(n):
     random.seed(42)
-    tipos = ["CORR", "PRED", "PREV"]
-    criticidades = ["Alta", "Media", "Baja"]
-    disciplinas = ["MEC", "ELE", "INS", "CIV"]
-
     ots = []
-
     for i in range(n):
-        duracion = random.choice([6, 12, 18])
         ots.append({
             "id": f"OT{i+1:03}",
-            "Tipo": random.choice(tipos),
-            "Criticidad": random.choice(criticidades),
-            "Disciplina": random.choice(disciplinas),
-            "Duracion": duracion,
-            "Ubicacion": random.choice(["Planta", "Remota"])
+            "Disciplina": random.choice(["MEC","ELE"]),
+            "Duracion": random.choice([6, 12]),
+            "Criticidad": random.choice(["Alta","Media","Baja"]),
+            "Ubicacion": random.choice(["Planta","Remota"])
         })
-
     return ots
 
 raw_ots = generar_ots(num_ots)
-df_input = pd.DataFrame(raw_ots)
-st.subheader("OTs Recibidas")
-st.dataframe(df_input, use_container_width=True)
+st.dataframe(pd.DataFrame(raw_ots))
 
 # ============================================================
-# MODELO CP-SAT
+# MODELO
 # ============================================================
 
 model = cp_model.CpModel()
 
-intervalos_por_disciplina = {d: [] for d in capacidad}
-intervalos_camionetas = []
-
 start_vars = {}
 end_vars = {}
 ejecutar_vars = {}
+asignacion_vars = {}
 
-penalizaciones_no_ejecutadas = []
+intervalos_camionetas = []
 
-# Pesos por criticidad
-peso_reprogramacion = {
-    "Alta": 1000,
-    "Media": 300,
-    "Baja": 50
-}
+# Pesos reprogramación
+peso_reprog = {"Alta":1000,"Media":300,"Baja":50}
+penalizaciones = []
 
 for ot in raw_ots:
 
@@ -98,40 +79,72 @@ for ot in raw_ots:
     end = model.NewIntVar(0, HORIZONTE, f"end_{nombre}")
     ejecutar = model.NewBoolVar(f"ejecutar_{nombre}")
 
-    interval = model.NewOptionalIntervalVar(
-        start, dur, end, ejecutar, f"interval_{nombre}"
-    )
+    interval = model.NewOptionalIntervalVar(start, dur, end, ejecutar, f"int_{nombre}")
 
     start_vars[nombre] = start
     end_vars[nombre] = end
     ejecutar_vars[nombre] = ejecutar
 
-    # Capacidad disciplina
-    intervalos_por_disciplina[ot["Disciplina"]].append((interval, 1))
+    # ===== ASIGNACIÓN A UN SOLO TÉCNICO =====
+    asignaciones_ot = []
 
-    # Camioneta si es remota
+    for tec in tecnicos[ot["Disciplina"]]:
+        var = model.NewBoolVar(f"{nombre}_asig_{tec}")
+        asignaciones_ot.append(var)
+        asignacion_vars[(nombre,tec)] = var
+
+    # Debe asignarse a un técnico si se ejecuta
+    model.Add(sum(asignaciones_ot) == ejecutar)
+
+    # Camionetas
     if ot["Ubicacion"] == "Remota":
         intervalos_camionetas.append(interval)
 
-    # Penalización si NO se ejecuta
-    no_ejecutada = model.NewIntVar(0, 1, f"no_exec_{nombre}")
-    model.Add(no_ejecutada == 1 - ejecutar)
-
-    penalizaciones_no_ejecutadas.append(
-        peso_reprogramacion[ot["Criticidad"]] * no_ejecutada
-    )
+    # Penalización si no ejecuta
+    no_exec = model.NewIntVar(0,1,f"noexec_{nombre}")
+    model.Add(no_exec == 1 - ejecutar)
+    penalizaciones.append(peso_reprog[ot["Criticidad"]] * no_exec)
 
 # ============================================================
-# RESTRICCIONES DE CAPACIDAD
+# LÍMITE DIARIO POR TÉCNICO
 # ============================================================
 
-for disc, intervalos in intervalos_por_disciplina.items():
-    if intervalos:
-        model.AddCumulative(
-            [i[0] for i in intervalos],
-            [i[1] for i in intervalos],
-            capacidad[disc]
-        )
+for disc in tecnicos:
+    for tec in tecnicos[disc]:
+        for dia in range(DIAS_MES):
+
+            inicio_dia = dia * HORAS_POR_DIA
+            fin_dia = (dia+1) * HORAS_POR_DIA
+
+            contribuciones = []
+
+            for ot in raw_ots:
+                if ot["Disciplina"] != disc:
+                    continue
+
+                nombre = ot["id"]
+                dur = ot["Duracion"]
+
+                activo = model.NewBoolVar(f"activo_{nombre}_{tec}_{dia}")
+
+                model.Add(start_vars[nombre] < fin_dia).OnlyEnforceIf(activo)
+                model.Add(end_vars[nombre] > inicio_dia).OnlyEnforceIf(activo)
+                model.Add(start_vars[nombre] >= fin_dia).OnlyEnforceIf(activo.Not())
+                model.Add(end_vars[nombre] <= inicio_dia).OnlyEnforceIf(activo.Not())
+
+                contrib = model.NewIntVar(0, dur, f"contrib_{nombre}_{tec}_{dia}")
+
+                model.Add(contrib == dur).OnlyEnforceIf([activo, asignacion_vars[(nombre,tec)]])
+                model.Add(contrib == 0).OnlyEnforceIf(activo.Not())
+
+                contribuciones.append(contrib)
+
+            if contribuciones:
+                model.Add(sum(contribuciones) <= HORAS_POR_DIA)
+
+# ============================================================
+# CAMIONETAS
+# ============================================================
 
 if intervalos_camionetas:
     model.AddCumulative(
@@ -141,13 +154,13 @@ if intervalos_camionetas:
     )
 
 # ============================================================
-# FUNCIÓN OBJETIVO
+# OBJETIVO
 # ============================================================
 
-model.Minimize(sum(penalizaciones_no_ejecutadas))
+model.Minimize(sum(penalizaciones))
 
 # ============================================================
-# RESOLVER
+# SOLVER
 # ============================================================
 
 solver = cp_model.CpSolver()
@@ -163,41 +176,26 @@ if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
     resultados = []
 
     for ot in raw_ots:
-
         nombre = ot["id"]
         ejecutada = solver.Value(ejecutar_vars[nombre])
 
-        if ejecutada == 1:
+        if ejecutada:
             inicio = solver.Value(start_vars[nombre])
-            fin = solver.Value(end_vars[nombre])
-            fecha_inicio = FECHA_INICIO + timedelta(hours=inicio)
+            fecha = FECHA_INICIO + timedelta(hours=inicio)
             estado = "Programada"
         else:
-            fecha_inicio = None
-            fin = None
+            fecha = None
             estado = "Reprogramada"
 
         resultados.append({
             "OT": nombre,
-            "Tipo": ot["Tipo"],
-            "Criticidad": ot["Criticidad"],
             "Disciplina": ot["Disciplina"],
             "Estado": estado,
-            "Inicio": fecha_inicio
+            "Inicio": fecha
         })
 
     df = pd.DataFrame(resultados)
-    st.subheader("Resultado de Planificación")
-    st.dataframe(df, use_container_width=True)
-
-    total = len(df)
-    ejecutadas = len(df[df["Estado"] == "Programada"])
-    reprogramadas = total - ejecutadas
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total OTs", total)
-    col2.metric("Programadas", ejecutadas)
-    col3.metric("Reprogramadas", reprogramadas)
+    st.dataframe(df)
 
 else:
-    st.error("No se encontró solución.")
+    st.error("No se encontró solución")
