@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 
 st.set_page_config(layout="wide")
 
-# Ocultar menú y footer
 hide_st_style = """
     <style>
     #MainMenu {visibility: hidden;}
@@ -28,6 +27,7 @@ st.title("🛠️ Generador de Órdenes de Trabajo")
 disciplinas_posibles = ['Eléctrico', 'Mecánico', 'Instrumentista', 'Civil']
 criticidades = ['Alta', 'Media', 'Baja']
 ubicaciones = ['Planta', 'Remota']
+tipos_mantenimiento = ['Preventiva', 'Correctiva', 'Predictiva']
 
 # ============================================================
 # FUNCIÓN GENERADORA
@@ -35,6 +35,7 @@ ubicaciones = ['Planta', 'Remota']
 
 def generar_orden(id_orden):
     criticidad = random.choice(criticidades)
+    tipo = random.choice(tipos_mantenimiento)
     fecha = datetime.today() + timedelta(days=random.randint(0, 30))
     ubicacion = random.choice(ubicaciones)
     camion = 'Sí' if ubicacion == 'Remota' else 'No'
@@ -45,15 +46,20 @@ def generar_orden(id_orden):
     horas = [random.randint(1, 8) for _ in disciplinas]
     tecnicos = [random.randint(1, 3) for _ in disciplinas]
     
+    # 🔥 Cálculo Total Horas Hombre
+    total_hh = sum(h * t for h, t in zip(horas, tecnicos))
+    
     return {
         'ID': id_orden,
+        'Tipo': tipo,
         'Criticidad': criticidad,
         'Fecha': fecha.strftime("%Y-%m-%d"),
         'Ubicación': ubicacion,
         'Camión': camion,
         'Disciplinas': ', '.join(disciplinas),
         'Horas por disciplina': ', '.join(str(h) for h in horas),
-        'Técnicos por disciplina': ', '.join(str(t) for t in tecnicos)
+        'Técnicos por disciplina': ', '.join(str(t) for t in tecnicos),
+        'Total Horas-Hombre': total_hh
     }
 
 # ============================================================
@@ -76,17 +82,12 @@ df_ordenes = pd.DataFrame(ordenes)
 
 st.subheader("Resumen Ejecutivo")
 
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
 
 col1.metric("Total Órdenes", len(df_ordenes))
-col2.metric(
-    "Órdenes Alta Criticidad",
-    len(df_ordenes[df_ordenes["Criticidad"] == "Alta"])
-)
-col3.metric(
-    "Órdenes Remotas",
-    len(df_ordenes[df_ordenes["Ubicación"] == "Remota"])
-)
+col2.metric("Alta Criticidad", len(df_ordenes[df_ordenes["Criticidad"] == "Alta"]))
+col3.metric("Correctivas", len(df_ordenes[df_ordenes["Tipo"] == "Correctiva"]))
+col4.metric("Total HH", df_ordenes["Total Horas-Hombre"].sum())
 
 # ============================================================
 # TABLA
