@@ -6,7 +6,7 @@ import pandas as pd
 st.title("🛠️ Generador de Órdenes de Trabajo")
 
 # Parámetros
-disciplinas_posibles = ['Eléctrico', 'Mecánico', 'Instrumentista', 'Civil']
+disciplinas_posibles = ['Eléc', 'Mecán', 'Instru', 'Civil']
 criticidades = ['Alta', 'Media', 'Baja']
 ubicaciones = ['Planta', 'Remota']
 
@@ -43,5 +43,6 @@ df_ordenes = pd.DataFrame(ordenes)
 # Mostrar tabla completa
 st.subheader("Todas las Órdenes de Trabajo")
 st.dataframe(df_ordenes)
+
 
 
