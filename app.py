@@ -285,7 +285,7 @@ with st.expander("FASE 5 – Restricciones de Capacidad", expanded=True):
     st.success("Restricciones aplicadas correctamente.")
 
 # ============================================================
-# FASE 6 – FUNCIÓN OBJETIVO INDUSTRIAL CORREGIDA
+# FASE 6 – FUNCIÓN OBJETIVO INDUSTRIAL BALANCEADA
 # ============================================================
 
 with st.expander("FASE 6 – Función Objetivo Industrial", expanded=True):
@@ -312,7 +312,7 @@ with st.expander("FASE 6 – Función Objetivo Industrial", expanded=True):
         peso = pesos_criticidad[ot["Criticidad"]]
         atrasos.append(peso * atraso)
 
-        # Penalización si se ejecuta en la primera semana
+        # Penalización si inicia en la primera semana
         es_temprano = model.NewBoolVar(f"temprano_{nombre}")
         model.Add(start < 5 * HORAS_POR_DIA).OnlyEnforceIf(es_temprano)
         model.Add(start >= 5 * HORAS_POR_DIA).OnlyEnforceIf(es_temprano.Not())
@@ -322,77 +322,65 @@ with st.expander("FASE 6 – Función Objetivo Industrial", expanded=True):
     model.Add(penalizacion_temprana == sum(bloques_tempranos))
 
     # -----------------------------
-    # BALANCE DE CARGA
+    # BALANCE REAL POR PROMEDIO
     # -----------------------------
-    if not desactivar_balance_carga:
+    carga_diaria_horas = []
 
-        carga_diaria_horas = []
+    for dia in range(dias_horizonte):
 
-        for dia in range(dias_horizonte):
+        inicio_dia = dia * HORAS_POR_DIA
+        fin_dia = (dia + 1) * HORAS_POR_DIA
+        contribuciones = []
 
-            inicio_dia = dia * HORAS_POR_DIA
-            fin_dia = (dia + 1) * HORAS_POR_DIA
-            contribuciones = []
+        for intervalo, duracion in todos_intervalos:
 
-            for intervalo, duracion in todos_intervalos:
+            nombre_intervalo = intervalo.Name()
+            base_name = nombre_intervalo.replace("interval_", "", 1)
+            start = start_vars[base_name]
+            end = end_vars[base_name]
 
-                nombre_intervalo = intervalo.Name()
-                base_name = nombre_intervalo.replace("interval_", "", 1)
-                start = start_vars[base_name]
-                end = end_vars[base_name]
+            activo = model.NewBoolVar(f"activo_{dia}_{nombre_intervalo}")
 
-                activo = model.NewBoolVar(f"activo_{dia}_{nombre_intervalo}")
+            model.Add(start < fin_dia).OnlyEnforceIf(activo)
+            model.Add(end > inicio_dia).OnlyEnforceIf(activo)
+            model.Add(start >= fin_dia).OnlyEnforceIf(activo.Not())
+            model.Add(end <= inicio_dia).OnlyEnforceIf(activo.Not())
 
-                model.Add(start < fin_dia).OnlyEnforceIf(activo)
-                model.Add(end > inicio_dia).OnlyEnforceIf(activo)
-                model.Add(start >= fin_dia).OnlyEnforceIf(activo.Not())
-                model.Add(end <= inicio_dia).OnlyEnforceIf(activo.Not())
+            contrib = model.NewIntVar(0, duracion, f"contrib_{dia}_{nombre_intervalo}")
+            model.Add(contrib == duracion).OnlyEnforceIf(activo)
+            model.Add(contrib == 0).OnlyEnforceIf(activo.Not())
 
-                contrib = model.NewIntVar(0, duracion, f"contrib_{dia}_{nombre_intervalo}")
-                model.Add(contrib == duracion).OnlyEnforceIf(activo)
-                model.Add(contrib == 0).OnlyEnforceIf(activo.Not())
+            contribuciones.append(contrib)
 
-                contribuciones.append(contrib)
-
-            carga_dia = model.NewIntVar(0, 1000, f"carga_dia_{dia}")
-            model.Add(carga_dia == sum(contribuciones))
-            carga_diaria_horas.append(carga_dia)
-
-        max_carga_diaria = model.NewIntVar(0, 1000, "max_carga_diaria")
-        model.AddMaxEquality(max_carga_diaria, carga_diaria_horas)
-
-    else:
-        max_carga_diaria = 0
+        carga_dia = model.NewIntVar(0, 1000, f"carga_dia_{dia}")
+        model.Add(carga_dia == sum(contribuciones))
+        carga_diaria_horas.append(carga_dia)
 
     # -----------------------------
-    # MAKESPAN (Duración total del plan)
+    # CARGA PROMEDIO OBJETIVO
     # -----------------------------
-    makespan = model.NewIntVar(0, HORIZONTE_HORAS, "makespan")
-    model.AddMaxEquality(makespan, list(end_vars.values()))
+    total_horas_modelo = sum(d for (_, d) in todos_intervalos)
+    carga_objetivo = total_horas_modelo // dias_horizonte
+
+    desviaciones = []
+
+    for dia in range(dias_horizonte):
+        desviacion = model.NewIntVar(0, 1000, f"desviacion_{dia}")
+        model.AddAbsEquality(desviacion, carga_diaria_horas[dia] - carga_objetivo)
+        desviaciones.append(desviacion)
 
     # -----------------------------
-    # FUNCIÓN OBJETIVO CORREGIDA
+    # FUNCIÓN OBJETIVO FINAL
     # -----------------------------
 
-    # Peso dinámico para usar mejor el horizonte
-    peso_makespan = 1
+    model.Minimize(
+        peso_atrasos * sum(atrasos)
+        + peso_carga * sum(desviaciones)
+        + peso_temprano * penalizacion_temprana
+    )
 
-    if desactivar_balance_carga:
-        model.Minimize(
-            peso_atrasos * sum(atrasos)
-            + peso_temprano * penalizacion_temprana
-            + peso_makespan * makespan
-        )
-        st.write("Objetivo: atrasos + penalización temprana + uso del horizonte")
+    st.write("Objetivo: minimizar atrasos + distribuir carga en todo el horizonte + penalización temprana")
 
-    else:
-        model.Minimize(
-            peso_atrasos * sum(atrasos)
-            + peso_carga * max_carga_diaria
-            + peso_temprano * penalizacion_temprana
-            + peso_makespan * makespan
-        )
-        st.write("Objetivo: atrasos + balance de carga + penalización temprana + uso del horizonte")
 
 # ============================================================
 # FASE 7 – RESOLUCIÓN Y RESULTADOS
@@ -692,5 +680,6 @@ with st.expander("FASE 7 – Resolución del Modelo", expanded=True):
         st.write(f"OTs con ventana insuficiente (después de ajuste): {ventanas_ajustadas}")
         
         st.info("Prueba activando 'Ignorar fechas iniciales' y/o 'Desactivar balance de carga' en el panel lateral.")
+
 
 
