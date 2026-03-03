@@ -179,23 +179,36 @@ if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
         nombre = ot["id"]
         ejecutada = solver.Value(ejecutar_vars[nombre])
 
+        tecnico_asignado = None
+
         if ejecutada:
+
+            # 🔎 Buscar qué técnico fue asignado
+            for tec in tecnicos[ot["Disciplina"]]:
+                if solver.Value(asignacion_vars[(nombre, tec)]) == 1:
+                    tecnico_asignado = tec
+                    break
+
             inicio = solver.Value(start_vars[nombre])
-            fecha = FECHA_INICIO + timedelta(hours=inicio)
+            fin = solver.Value(end_vars[nombre])
+
+            fecha_inicio = FECHA_INICIO + timedelta(hours=inicio)
+
             estado = "Programada"
+
         else:
-            fecha = None
+            fecha_inicio = None
+            fin = None
             estado = "Reprogramada"
 
         resultados.append({
             "OT": nombre,
             "Disciplina": ot["Disciplina"],
+            "Técnico Asignado": tecnico_asignado,
             "Estado": estado,
-            "Inicio": fecha
+            "Inicio": fecha_inicio
         })
 
     df = pd.DataFrame(resultados)
-    st.dataframe(df)
-
-else:
-    st.error("No se encontró solución")
+    st.subheader("📋 Resultado con Mecánico Identificado")
+    st.dataframe(df, use_container_width=True)
