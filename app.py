@@ -365,307 +365,73 @@ with st.expander("FASE 6 – Función Objetivo Estratégica", expanded=True):
         + peso_carga * dispersion_carga
     )
 
-    st.write("Objetivo: Minimizar atrasos + balancear carga en todo el horizonte")
-
+    st.write("Objetivo: Minimizar atrasos + balancear carga en todo el horizonte")}
 # ============================================================
-# FASE 7 – RESOLUCIÓN Y RESULTADOS
+# FASE 7 – RESOLVER MODELO Y MOSTRAR RESULTADOS
 # ============================================================
 
 with st.expander("FASE 7 – Resolución del Modelo", expanded=True):
+
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 60
+    solver.parameters.max_time_in_seconds = 30
+    solver.parameters.num_search_workers = 8
+
     status = solver.Solve(model)
 
-    if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
-        st.success("Solución encontrada ✔")
+    if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+
+        st.success("Modelo resuelto correctamente")
+
         resultados = []
+
         for nombre, start in start_vars.items():
+
             inicio = solver.Value(start)
             fin = solver.Value(end_vars[nombre])
+
             ot_id = nombre.split("_")[0]
             ot = next(o for o in raw_ots if o["id"] == ot_id)
-            fecha_entrada = ot["Fecha_Inicial"]
-            fecha_limite = ot["Fecha_Limite"]
-            fecha_programada = FECHA_INICIO + timedelta(hours=inicio)
-            limite_horas = (fecha_limite - FECHA_INICIO).days * HORAS_POR_DIA
-            atraso = max(0, fin - limite_horas)
+
+            fecha_inicio = FECHA_INICIO + timedelta(hours=inicio)
+            fecha_fin = FECHA_INICIO + timedelta(hours=fin)
+
             resultados.append({
-                "Bloque": nombre,
                 "OT": ot_id,
-                "Fecha Entrada": fecha_entrada,
-                "Fecha Programada": fecha_programada,
-                "Fecha Límite": fecha_limite,
-                "Inicio (h)": inicio,
-                "Fin (h)": fin,
-                "Horas Atraso": atraso,
-                "Backlog": "SI" if atraso > 0 else "NO"
+                "Activo": ot["Activo"],
+                "Tipo": ot["Tipo"],
+                "Criticidad": ot["Criticidad"],
+                "Inicio": fecha_inicio,
+                "Fin": fecha_fin,
+                "Duracion (h)": ot["Duracion"]
             })
 
-        df = pd.DataFrame(resultados).sort_values("Inicio (h)")
-        total_bloques = len(df)
-        backlog_count = len(df[df["Backlog"] == "SI"])
-        cumplimiento = 100 * (1 - backlog_count / total_bloques)
+        df_resultados = pd.DataFrame(resultados)
 
-        st.subheader("📊 Indicadores de Cumplimiento")
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Total Bloques", total_bloques)
-        col2.metric("Bloques en Backlog", backlog_count)
-        col3.metric("% Cumplimiento", f"{cumplimiento:.1f}%")
-        ots_fuera = len(raw_ots) - len(ots_filtradas)
-        col4.metric("OTs fuera horizonte", ots_fuera)
-        # 🔹 ESTA LÍNEA SE QUEDA
-        st.dataframe(df, width='stretch')
+        # ======================================================
+        # MÉTRICAS CLAVE (IMPORTANTE CON TU NUEVA LÓGICA)
+        # ======================================================
 
-        # Carga diaria (si se calculó)
-        if not desactivar_balance_carga:
-            st.subheader("📈 Carga Diaria de Trabajo (horas)")
-            cargas_reales = []
-            for dia in range(dias_horizonte):
-                inicio_dia = dia * HORAS_POR_DIA
-                fin_dia = (dia + 1) * HORAS_POR_DIA
-                carga = 0
-                for _, row in df.iterrows():
-                    if row["Inicio (h)"] < fin_dia and row["Fin (h)"] > inicio_dia:
-                        duracion = row["Fin (h)"] - row["Inicio (h)"]
-                        carga += duracion
-                cargas_reales.append(carga)
-            df_carga = pd.DataFrame({"Día": range(1, 32), "Carga (horas)": cargas_reales})
-            fig_carga = px.bar(df_carga, x="Día", y="Carga (horas)", title="Carga diaria de trabajo")
-            st.plotly_chart(fig_carga, use_container_width=True)
+        col1, col2, col3 = st.columns(3)
 
-        # Gantt principal
-        df["Inicio_dt"] = df["Inicio (h)"].apply(lambda h: FECHA_INICIO + timedelta(hours=h))
-        df["Fin_dt"] = df["Fin (h)"].apply(lambda h: FECHA_INICIO + timedelta(hours=h))
-        fig = px.timeline(
-            df,
-            x_start="Inicio_dt",
-            x_end="Fin_dt",
-            y="OT",
-            color="Backlog",
-            title="📅 Diagrama de Gantt – Simulación Marzo 2026"
-        )
-        fig.update_layout(height=1000, xaxis_title="Calendario Marzo 2026", yaxis_title="Ordenes de Trabajo (OTs)")
-        fig.update_xaxes(range=[FECHA_INICIO, FECHA_INICIO + timedelta(days=dias_horizonte)], dtick="D1", tickformat="%d %b")
-        fig.update_yaxes(autorange="reversed")
-        st.plotly_chart(fig, use_container_width=True)
+        total_ot = len(df_resultados)
 
-        # ===== Gantt de Camionetas =====
-        if nombres_remotos:
-            st.subheader("🚐 Programación de Camionetas")
-            data_cam = []
-            for nombre in nombres_remotos:
-                if nombre in start_vars:
-                    inicio = solver.Value(start_vars[nombre])
-                    fin = solver.Value(end_vars[nombre])
-                    ot_id = nombre.split("_")[0]
-                    data_cam.append({
-                        "Bloque": nombre,
-                        "OT": ot_id,
-                        "Inicio_dt": FECHA_INICIO + timedelta(hours=inicio),
-                        "Fin_dt": FECHA_INICIO + timedelta(hours=fin)
-                    })
-            if data_cam:
-                df_cam = pd.DataFrame(data_cam)
-                fig_cam = px.timeline(
-                    df_cam,
-                    x_start="Inicio_dt",
-                    x_end="Fin_dt",
-                    y="OT",
-                    color="OT",
-                    title="Uso de camionetas por OT"
-                )
-                fig_cam.update_layout(height=500, xaxis_title="Calendario Marzo 2026", yaxis_title="OT")
-                fig_cam.update_xaxes(range=[FECHA_INICIO, FECHA_INICIO + timedelta(days=dias_horizonte)], dtick="D1", tickformat="%d %b")
-                fig_cam.update_yaxes(autorange="reversed")
-                st.plotly_chart(fig_cam, use_container_width=True)
-            else:
-                st.info("No hay bloques remotos en la solución.")
-        else:
-            st.info("No hay OTs remotas en esta simulación.")
+        ultimo_fin = df_resultados["Fin"].max()
+        dias_usados = (ultimo_fin - FECHA_INICIO).days + 1
 
-        # ===== NUEVO: Gantt de Personal (Asignación de técnicos) =====
-        st.subheader("👥 Asignación de Técnicos (Gantt Personal)")
+        horizonte_dias = dias_horizonte
 
-        # Crear lista de técnicos por disciplina
-        tecnicos_por_disciplina = {}
-        for disc, num in capacidad_disciplina.items():
-            tecnicos_por_disciplina[disc] = [f"{disc}_{j+1}" for j in range(num)]
+        porcentaje_uso = round((dias_usados / horizonte_dias) * 100, 1)
 
-        # Obtener los valores de inicio y fin de cada bloque
-        bloques_con_tiempo = []
-        for nombre, start in start_vars.items():
-            inicio = solver.Value(start)
-            fin = solver.Value(end_vars[nombre])
-            # Buscar la disciplina y demanda de este bloque en info_bloques
-            for (nom, disc, dur, demanda) in info_bloques:
-                if nom == nombre:
-                    bloques_con_tiempo.append((nombre, disc, demanda, inicio, fin))
-                    break
+        col1.metric("OTs Planificadas", total_ot)
+        col2.metric("Días Usados del Horizonte", dias_usados)
+        col3.metric("Uso del Horizonte (%)", f"{porcentaje_uso}%")
 
-        # Ordenar bloques por inicio
-        bloques_con_tiempo.sort(key=lambda x: x[3])
+        # ======================================================
+        # TABLA RESULTADOS
+        # ======================================================
 
-        # Asignación voraz: por disciplina, mantener agenda de técnicos
-        asignaciones = []  # (tecnico, bloque, inicio_dt, fin_dt)
-        agenda_tecnicos = {disc: {tec: [] for tec in tecnicos_por_disciplina[disc]} for disc in capacidad_disciplina}
+        st.subheader("Cronograma generado")
+        st.dataframe(df_resultados, use_container_width=True)
 
-        for (nombre, disc, demanda, inicio, fin) in bloques_con_tiempo:
-            # Buscar técnicos de esta disciplina que estén libres en [inicio, fin)
-            tecnicos_asignados = []
-            for tec in tecnicos_por_disciplina[disc]:
-                # Verificar si el técnico tiene algún intervalo que se solape
-                ocupado = False
-                for (i, f) in agenda_tecnicos[disc][tec]:
-                    if not (fin <= i or f <= inicio):  # se solapa
-                        ocupado = True
-                        break
-                if not ocupado:
-                    tecnicos_asignados.append(tec)
-                    if len(tecnicos_asignados) == demanda:
-                        break
-            if len(tecnicos_asignados) < demanda:
-                st.warning(f"No se pudo asignar suficientes técnicos para {nombre} (disc {disc}, demanda {demanda}). Se asignarán los disponibles.")
-                # Completar con los primeros disponibles (puede haber conflicto)
-                for tec in tecnicos_por_disciplina[disc]:
-                    if tec not in tecnicos_asignados:
-                        tecnicos_asignados.append(tec)
-                        if len(tecnicos_asignados) == demanda:
-                            break
-
-            # Registrar la asignación y actualizar agenda
-            for tec in tecnicos_asignados[:demanda]:
-                agenda_tecnicos[disc][tec].append((inicio, fin))
-                asignaciones.append({
-                    "Técnico": tec,
-                    "Bloque": nombre,
-                    "OT": nombre.split("_")[0],
-                    "Inicio_dt": FECHA_INICIO + timedelta(hours=inicio),
-                    "Fin_dt": FECHA_INICIO + timedelta(hours=fin)
-                })
-
-        if asignaciones:
-            df_personal = pd.DataFrame(asignaciones)
-            fig_personal = px.timeline(
-                df_personal,
-                x_start="Inicio_dt",
-                x_end="Fin_dt",
-                y="Técnico",
-                color="OT",
-                title="Asignación de Técnicos a lo largo del mes"
-            )
-            fig_personal.update_layout(height=600, xaxis_title="Calendario Marzo 2026", yaxis_title="Técnico")
-            fig_personal.update_xaxes(range=[FECHA_INICIO, FECHA_INICIO + timedelta(days=dias_horizonte)], dtick="D1", tickformat="%d %b")
-            fig_personal.update_yaxes(autorange="reversed")
-            st.plotly_chart(fig_personal, use_container_width=True)
-        else:
-            st.info("No hay asignaciones para mostrar.")
-
-        
-    # ===== VISTA CONSOLIDADA TABLA EJECUTIVA =====
-        st.subheader("📋 Tabla Ejecutiva de Operaciones")
-        
-        # Usar bloques_con_tiempo que ya tenemos (con disc, demanda, inicio, fin)
-        # Crear DataFrame para análisis diario
-        dias = list(range(31))
-        data_diario = []
-        for dia in dias:
-            inicio_dia = dia * HORAS_POR_DIA
-            fin_dia = (dia + 1) * HORAS_POR_DIA
-            # Filtrar bloques que se ejecutan este día
-            bloques_dia = [b for b in bloques_con_tiempo if b[3] < fin_dia and b[4] > inicio_dia]
-            # Horas hombre por disciplina
-            hh_mec = sum(b[2] * (min(b[4], fin_dia) - max(b[3], inicio_dia)) for b in bloques_dia if b[1] == "MEC")
-            hh_ele = sum(b[2] * (min(b[4], fin_dia) - max(b[3], inicio_dia)) for b in bloques_dia if b[1] == "ELE")
-            hh_ins = sum(b[2] * (min(b[4], fin_dia) - max(b[3], inicio_dia)) for b in bloques_dia if b[1] == "INS")
-            hh_civ = sum(b[2] * (min(b[4], fin_dia) - max(b[3], inicio_dia)) for b in bloques_dia if b[1] == "CIV")
-            # Uso de camionetas: bloques remotos (necesitamos saber cuáles son remotos)
-            # Podemos obtener de nombres_remotos
-            uso_camionetas = sum(1 for b in bloques_dia if b[0] in nombres_remotos)
-            # Backlog: bloques con atraso (según df)
-            # Necesitamos saber qué bloques tienen atraso. En df tenemos columna Backlog.
-            # Construir un diccionario backlog por bloque
-            backlog_dict = dict(zip(df["Bloque"], df["Backlog"] == "SI"))
-            horas_atraso_dict = dict(zip(df["Bloque"], df["Horas Atraso"]))
-            bloques_backlog_dia = [b for b in bloques_dia if backlog_dict.get(b[0], False)]
-            cantidad_backlog = len(bloques_backlog_dia)
-            horas_backlog = sum(horas_atraso_dict.get(b[0], 0) for b in bloques_dia)
-            
-            data_diario.append({
-                "Día": dia + 1,
-                "HH MEC": round(hh_mec, 1),
-                "HH ELE": round(hh_ele, 1),
-                "HH INS": round(hh_ins, 1),
-                "HH CIV": round(hh_civ, 1),
-                "Uso Camionetas": uso_camionetas,
-                "Bloques Backlog": cantidad_backlog,
-                "Horas Backlog": round(horas_backlog, 1)
-            })
-        
-        df_ejecutivo = pd.DataFrame(data_diario)
-        st.dataframe(df_ejecutivo.style.format({
-            "HH MEC": "{:.1f}",
-            "HH ELE": "{:.1f}",
-            "HH INS": "{:.1f}",
-            "HH CIV": "{:.1f}",
-            "Uso Camionetas": "{:.0f}",
-            "Bloques Backlog": "{:.0f}",
-            "Horas Backlog": "{:.1f}"
-        }), use_container_width=True)
-        
-        # Resumen global
-        st.markdown("**Resumen Global**")
-        total_hh = df_ejecutivo[["HH MEC","HH ELE","HH INS","HH CIV"]].sum().sum()
-        total_camionetas = df_ejecutivo["Uso Camionetas"].sum()
-        total_bloques_backlog = df_ejecutivo["Bloques Backlog"].sum()
-        total_horas_backlog = df_ejecutivo["Horas Backlog"].sum()
-        cumplimiento_global = 100 * (1 - total_bloques_backlog / total_bloques) if total_bloques > 0 else 0
-        
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Total HH", f"{total_hh:.0f}")
-        col2.metric("Uso Camionetas", f"{total_camionetas:.0f}")
-        col3.metric("Bloques Backlog", f"{total_bloques_backlog:.0f}")
-        col4.metric("% Cumplimiento", f"{cumplimiento_global:.1f}%")
-
-        st.metric("Duración total del plan (horas)", solver.Value(makespan))
     else:
-        st.error("No se encontró solución factible. Revise las restricciones o aumente el horizonte.")
-        st.write("**Posibles causas:**")
-        st.write("- Capacidad insuficiente de técnicos o camionetas.")
-        st.write("- Fechas iniciales demasiado tardías combinadas con fechas límite tempranas.")
-        st.write("- Restricciones de precedencia demasiado estrictas.")
-        st.write("- Balance de carga muy exigente (si está activado).")
-        st.write("**Diagnóstico adicional:**")
-        st.write(f"Número de OTs: {len(raw_ots)}")
-        total_bloques = len(start_vars)
-        st.write(f"Número total de bloques: {total_bloques}")
-        
-        # Demanda por disciplina
-        demanda_disc = {d: 0 for d in capacidad_disciplina}
-        for ot in raw_ots:
-            discs = [d.strip() for d in ot["Disciplinas"].split("|")]
-            horas = [int(h.strip()) for h in ot["Horas"].split("|")]
-            for d, h in zip(discs, horas):
-                demanda_disc[d] += h
-        st.write("Demanda total por disciplina (horas):")
-        st.json(demanda_disc)
-        
-        # Capacidad mensual
-        st.write("Capacidad mensual por disciplina (horas):")
-        capacidad_mensual = {d: cap * HORAS_POR_DIA * dias_horizonte for d, cap in capacidad_disciplina.items()}
-        st.json(capacidad_mensual)
-        
-        # OTs con ventana insuficiente (después del ajuste)
-        ventanas_ajustadas = 0
-        for ot in raw_ots:
-            dur_total = sum([int(h.strip()) for h in ot["Horas"].split("|")])
-            dias_ventana = (ot["Fecha_Limite"] - ot["Fecha_Inicial"]).days + 1
-            horas_disponibles = dias_ventana * HORAS_POR_DIA
-            if dur_total > horas_disponibles:
-                ventanas_ajustadas += 1
-        st.write(f"OTs con ventana insuficiente (después de ajuste): {ventanas_ajustadas}")
-        
-        st.info("Prueba activando 'Ignorar fechas iniciales' y/o 'Desactivar balance de carga' en el panel lateral.")
-
-
-
-
+        st.error("No se encontró solución factible")
