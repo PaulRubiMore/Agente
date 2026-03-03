@@ -1,4 +1,4 @@
-import streamlit as st
+no te emociones como se vera solo quiero que se vea de manera decendente la informacion import streamlit as st
 import pandas as pd
 import random
 from datetime import datetime, timedelta
@@ -46,6 +46,7 @@ def generar_orden(id_orden):
     horas = [random.randint(1, 8) for _ in disciplinas]
     tecnicos = [random.randint(1, 3) for _ in disciplinas]
     
+    # 🔥 Cálculo Total Horas Hombre
     total_hh = sum(h * t for h, t in zip(horas, tecnicos))
     
     return {
@@ -76,36 +77,6 @@ ordenes = [generar_orden(f"OT{i+1}") for i in range(num_ordenes)]
 df_ordenes = pd.DataFrame(ordenes)
 
 # ============================================================
-# FASE 1 – PRIORIZACIÓN INTELIGENTE
-# ============================================================
-
-peso_tipo = {
-    "Correctiva": 3,
-    "Predictiva": 2,
-    "Preventiva": 1
-}
-
-peso_criticidad = {
-    "Alta": 3,
-    "Media": 2,
-    "Baja": 1
-}
-
-df_ordenes["Peso_Tipo"] = df_ordenes["Tipo"].map(peso_tipo)
-df_ordenes["Peso_Criticidad"] = df_ordenes["Criticidad"].map(peso_criticidad)
-
-df_ordenes["Prioridad"] = (
-    df_ordenes["Peso_Tipo"] * 10 +
-    df_ordenes["Peso_Criticidad"]
-)
-
-# 🔥 ORDEN DESCENDENTE POR PRIORIDAD
-df_ordenes = df_ordenes.sort_values(
-    by="Prioridad",
-    ascending=False
-).reset_index(drop=True)
-
-# ============================================================
 # MÉTRICAS EJECUTIVAS
 # ============================================================
 
@@ -119,13 +90,53 @@ col3.metric("Correctivas", len(df_ordenes[df_ordenes["Tipo"] == "Correctiva"]))
 col4.metric("Total HH", df_ordenes["Total Horas-Hombre"].sum())
 
 # ============================================================
-# TABLA PRINCIPAL (YA ORDENADA)
+# TABLA
 # ============================================================
 
-st.subheader("Órdenes de Trabajo Priorizadas (Descendente)")
+st.subheader("Todas las Órdenes de Trabajo")
 
 st.dataframe(
     df_ordenes,
     use_container_width=True,
     height=700
+)
+
+# ============================================================
+# FASE 1 – PRIORIZACIÓN INTELIGENTE
+# ============================================================
+
+st.subheader("FASE 1 – Priorización de Órdenes")
+
+# Diccionarios de ponderación
+peso_tipo = {
+    "Correctiva": 3,
+    "Predictiva": 2,
+    "Preventiva": 1
+}
+
+peso_criticidad = {
+    "Alta": 3,
+    "Media": 2,
+    "Baja": 1
+}
+
+# Calcular puntaje
+df_ordenes["Peso_Tipo"] = df_ordenes["Tipo"].map(peso_tipo)
+df_ordenes["Peso_Criticidad"] = df_ordenes["Criticidad"].map(peso_criticidad)
+
+df_ordenes["Prioridad"] = (
+    df_ordenes["Peso_Tipo"] * 10 +
+    df_ordenes["Peso_Criticidad"]
+)
+
+# Ordenar de mayor a menor prioridad
+df_priorizadas = df_ordenes.sort_values(
+    by="Prioridad",
+    ascending=False
+).reset_index(drop=True)
+
+st.dataframe(
+    df_priorizadas,
+    use_container_width=True,
+    height=100
 )
