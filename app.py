@@ -188,7 +188,7 @@ with st.expander("FASE 3 – Agente Priorización Estratégica", expanded=True):
 
 with st.expander("FASE 4 – Construcción Modelo Matemático (CP-SAT)", expanded=True):
 
-    HORIZONTE_HORAS = 744  # 31 días * 24h
+    HORIZONTE_HORAS = 31 * HORAS_POR_DIA
     st.write(f"Horizonte fijo: {HORIZONTE_HORAS} horas")
 
     model = cp_model.CpModel()
@@ -638,3 +638,4 @@ with st.expander("FASE 7 – Resolución del Modelo", expanded=True):
         st.write(f"OTs con ventana insuficiente (después de ajuste): {ventanas_ajustadas}")
         
         st.info("Prueba activando 'Ignorar fechas iniciales' y/o 'Desactivar balance de carga' en el panel lateral.")
+
