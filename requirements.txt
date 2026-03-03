@@ -3,3 +3,4 @@ ortools
 pandas
 plotly
 datetime
+numpy
