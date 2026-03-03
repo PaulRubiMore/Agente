@@ -98,7 +98,7 @@ st.subheader("Todas las Órdenes de Trabajo")
 st.dataframe(
     df_ordenes,
     use_container_width=True,
-    height=400
+    height=200
 )
 
 # ============================================================
@@ -138,8 +138,9 @@ df_priorizadas = df_ordenes.sort_values(
 st.dataframe(
     df_priorizadas,
     use_container_width=True,
-    height=400
+    height=200
 )
+
 
 
 
