@@ -364,7 +364,7 @@ with st.expander("FASE 6 – Función Objetivo Estratégica", expanded=True):
         peso_atrasos * sum(atrasos)
         + peso_carga * dispersion_carga
     )
-
+    
     st.write("Objetivo: Minimizar atrasos + balancear carga en todo el horizonte")}
 # ============================================================
 # FASE 7 – RESOLVER MODELO Y MOSTRAR RESULTADOS
@@ -435,3 +435,4 @@ with st.expander("FASE 7 – Resolución del Modelo", expanded=True):
 
     else:
         st.error("No se encontró solución factible")
+
