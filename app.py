@@ -53,7 +53,7 @@ def generar_orden(id_orden):
         'ID': id_orden,
         'Tipo': tipo,
         'Criticidad': criticidad,
-        'Fecha': fecha.strftime("%Y-%m-%d"),
+        'Fecha de planiacion': fecha.strftime("%Y-%m-%d"),
         'Ubicación': ubicacion,
         'Camión': camion,
         'Disciplinas': ', '.join(disciplinas),
@@ -100,3 +100,4 @@ st.dataframe(
     use_container_width=True,
     height=700
 )
+
