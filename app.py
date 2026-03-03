@@ -646,7 +646,7 @@ with st.expander("FASE 7 – Resolución del Modelo", expanded=True):
         
         # Capacidad mensual
         st.write("Capacidad mensual por disciplina (horas):")
-       capacidad_mensual = {d: cap * HORAS_POR_DIA * dias_horizonte for d, cap in capacidad_disciplina.items()}
+        capacidad_mensual = {d: cap * HORAS_POR_DIA * dias_horizonte for d, cap in capacidad_disciplina.items()}
         st.json(capacidad_mensual)
         
         # OTs con ventana insuficiente (después del ajuste)
@@ -660,4 +660,5 @@ with st.expander("FASE 7 – Resolución del Modelo", expanded=True):
         st.write(f"OTs con ventana insuficiente (después de ajuste): {ventanas_ajustadas}")
         
         st.info("Prueba activando 'Ignorar fechas iniciales' y/o 'Desactivar balance de carga' en el panel lateral.")
+
 
