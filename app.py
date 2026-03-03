@@ -59,7 +59,7 @@ def generar_orden(id_orden):
         'Disciplinas': ', '.join(disciplinas),
         'Horas por disciplina': ', '.join(str(h) for h in horas),
         'Técnicos por disciplina': ', '.join(str(t) for t in tecnicos),
-        'Total HH': total_hh
+        'Total Horas-Hombre': total_hh
     }
 
 # ============================================================
@@ -140,6 +140,7 @@ st.dataframe(
     use_container_width=True,
     height=400
 )
+
 
 
 
