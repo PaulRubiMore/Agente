@@ -36,7 +36,15 @@ with st.sidebar:
     st.subheader("Opciones de flexibilidad")
     ignorar_fechas_iniciales = st.checkbox("Ignorar fechas iniciales (todas pueden empezar el día 1)", value=False)
     desactivar_balance_carga = st.checkbox("Desactivar balance de carga (solo atrasos)", value=False)
-    
+    st.subheader("Horizonte de Planificación")
+
+    dias_horizonte = st.slider(
+    "Días a planificar",
+    min_value=3,
+    max_value=30,
+    value=30,
+    step=1
+    )
     st.subheader("Pesos de la función objetivo")
     peso_atrasos = st.slider("Peso atrasos", 0, 100, 10)
     peso_carga = st.slider("Peso balance de carga", 0, 500, 100)
@@ -183,12 +191,23 @@ with st.expander("FASE 3 – Agente Priorización Estratégica", expanded=True):
     st.success("Priorización estratégica calculada.")
 
 # ============================================================
+# FASE 4 – CONSTRUCCIÓN MODELO CP-SAT 
+# ============================================================
+
+fecha_fin_horizonte = FECHA_INICIO + timedelta(days=dias_horizonte)
+
+ots_filtradas = [
+    ot for ot in raw_ots
+    if ot["Fecha_Inicial"] < fecha_fin_horizonte
+]
+
+# ============================================================
 # FASE 4 – CONSTRUCCIÓN MODELO CP-SAT (HORIZONTE FIJO)
 # ============================================================
 
 with st.expander("FASE 4 – Construcción Modelo Matemático (CP-SAT)", expanded=True):
 
-    HORIZONTE_HORAS = 744  # 31 días * 24h
+    HORIZONTE_HORAS = dias_horizonte * HORAS_POR_DIA
     st.write(f"Horizonte fijo: {HORIZONTE_HORAS} horas")
 
     model = cp_model.CpModel()
@@ -201,7 +220,7 @@ with st.expander("FASE 4 – Construcción Modelo Matemático (CP-SAT)", expande
     nombres_remotos = []  # Para guardar los nombres de bloques que usan camioneta
     info_bloques = []     # Para guardar (nombre, disc, duracion, tecnicos_req) para post-procesamiento
 
-    for ot in raw_ots:
+    for ot in ots_filtradas:
         inicio_min = (ot["Fecha_Inicial"] - FECHA_INICIO).days * HORAS_POR_DIA
         if ignorar_fechas_iniciales:
             inicio_min = 0
@@ -297,7 +316,7 @@ with st.expander("FASE 6 – Función Objetivo Industrial", expanded=True):
     # Balance de carga (opcional)
     if not desactivar_balance_carga:
         carga_diaria_horas = []
-        for dia in range(31):
+        for dia in range(dias_horizonte):
             inicio_dia = dia * HORAS_POR_DIA
             fin_dia = (dia + 1) * HORAS_POR_DIA
             contribuciones = []
@@ -383,17 +402,20 @@ with st.expander("FASE 7 – Resolución del Modelo", expanded=True):
         cumplimiento = 100 * (1 - backlog_count / total_bloques)
 
         st.subheader("📊 Indicadores de Cumplimiento")
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         col1.metric("Total Bloques", total_bloques)
         col2.metric("Bloques en Backlog", backlog_count)
         col3.metric("% Cumplimiento", f"{cumplimiento:.1f}%")
+        ots_fuera = len(raw_ots) - len(ots_filtradas)
+        col4.metric("OTs fuera horizonte", ots_fuera)
+        # 🔹 ESTA LÍNEA SE QUEDA
         st.dataframe(df, width='stretch')
 
         # Carga diaria (si se calculó)
         if not desactivar_balance_carga:
             st.subheader("📈 Carga Diaria de Trabajo (horas)")
             cargas_reales = []
-            for dia in range(31):
+            for dia in range(dias_horizonte):
                 inicio_dia = dia * HORAS_POR_DIA
                 fin_dia = (dia + 1) * HORAS_POR_DIA
                 carga = 0
@@ -418,7 +440,7 @@ with st.expander("FASE 7 – Resolución del Modelo", expanded=True):
             title="📅 Diagrama de Gantt – Simulación Marzo 2026"
         )
         fig.update_layout(height=1000, xaxis_title="Calendario Marzo 2026", yaxis_title="Ordenes de Trabajo (OTs)")
-        fig.update_xaxes(range=[FECHA_INICIO, FECHA_INICIO + timedelta(days=31)], dtick="D1", tickformat="%d %b")
+        fig.update_xaxes(range=[FECHA_INICIO, FECHA_INICIO + timedelta(days=dias_horizonte)], dtick="D1", tickformat="%d %b")
         fig.update_yaxes(autorange="reversed")
         st.plotly_chart(fig, use_container_width=True)
 
@@ -448,7 +470,7 @@ with st.expander("FASE 7 – Resolución del Modelo", expanded=True):
                     title="Uso de camionetas por OT"
                 )
                 fig_cam.update_layout(height=500, xaxis_title="Calendario Marzo 2026", yaxis_title="OT")
-                fig_cam.update_xaxes(range=[FECHA_INICIO, FECHA_INICIO + timedelta(days=31)], dtick="D1", tickformat="%d %b")
+                fig_cam.update_xaxes(range=[FECHA_INICIO, FECHA_INICIO + timedelta(days=dias_horizonte)], dtick="D1", tickformat="%d %b")
                 fig_cam.update_yaxes(autorange="reversed")
                 st.plotly_chart(fig_cam, use_container_width=True)
             else:
@@ -527,7 +549,7 @@ with st.expander("FASE 7 – Resolución del Modelo", expanded=True):
                 title="Asignación de Técnicos a lo largo del mes"
             )
             fig_personal.update_layout(height=600, xaxis_title="Calendario Marzo 2026", yaxis_title="Técnico")
-            fig_personal.update_xaxes(range=[FECHA_INICIO, FECHA_INICIO + timedelta(days=31)], dtick="D1", tickformat="%d %b")
+            fig_personal.update_xaxes(range=[FECHA_INICIO, FECHA_INICIO + timedelta(days=dias_horizonte)], dtick="D1", tickformat="%d %b")
             fig_personal.update_yaxes(autorange="reversed")
             st.plotly_chart(fig_personal, use_container_width=True)
         else:
@@ -624,7 +646,7 @@ with st.expander("FASE 7 – Resolución del Modelo", expanded=True):
         
         # Capacidad mensual
         st.write("Capacidad mensual por disciplina (horas):")
-        capacidad_mensual = {d: cap * HORAS_POR_DIA * 31 for d, cap in capacidad_disciplina.items()}
+       capacidad_mensual = {d: cap * HORAS_POR_DIA * dias_horizonte for d, cap in capacidad_disciplina.items()}
         st.json(capacidad_mensual)
         
         # OTs con ventana insuficiente (después del ajuste)
@@ -638,3 +660,4 @@ with st.expander("FASE 7 – Resolución del Modelo", expanded=True):
         st.write(f"OTs con ventana insuficiente (después de ajuste): {ventanas_ajustadas}")
         
         st.info("Prueba activando 'Ignorar fechas iniciales' y/o 'Desactivar balance de carga' en el panel lateral.")
+
