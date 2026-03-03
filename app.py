@@ -138,8 +138,9 @@ df_priorizadas = df_ordenes.sort_values(
 st.dataframe(
     df_priorizadas,
     use_container_width=True,
-    height=700
+    height=100
 )
+
 
 
 
