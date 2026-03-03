@@ -384,7 +384,7 @@ with st.expander("FASE 6 – Función Objetivo Industrial", expanded=True):
     )
     st.write("Objetivo: minimizar atrasos + penalización temprana")
 
-else:
+    else:
     model.Minimize(
         peso_atrasos * sum(atrasos)
         + peso_carga * max_carga_diaria
@@ -690,6 +690,7 @@ with st.expander("FASE 7 – Resolución del Modelo", expanded=True):
         st.write(f"OTs con ventana insuficiente (después de ajuste): {ventanas_ajustadas}")
         
         st.info("Prueba activando 'Ignorar fechas iniciales' y/o 'Desactivar balance de carga' en el panel lateral.")
+
 
 
 
