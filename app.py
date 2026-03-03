@@ -378,19 +378,19 @@ with st.expander("FASE 6 – Función Objetivo Industrial", expanded=True):
     peso_makespan = 1
 
     if desactivar_balance_carga:
-    model.Minimize(
-        peso_atrasos * sum(atrasos)
-        + peso_temprano * penalizacion_temprana
-    )
-    st.write("Objetivo: minimizar atrasos + penalización temprana")
+        model.Minimize(
+            peso_atrasos * sum(atrasos)
+            + peso_temprano * penalizacion_temprana
+        )
+        st.write("Objetivo: atrasos + penalización temprana + uso del horizonte")
 
     else:
-    model.Minimize(
-        peso_atrasos * sum(atrasos)
-        + peso_carga * max_carga_diaria
-        + peso_temprano * penalizacion_temana
-    )
-    st.write("Objetivo: minimizar atrasos + balance de carga + penalización temprana")
+        model.Minimize(
+            peso_atrasos * sum(atrasos)
+            + peso_carga * max_carga_diaria
+            + peso_temprano * penalizacion_temprana
+        )
+        st.write("Objetivo: atrasos + balance de carga + penalización temprana + uso del horizonte")
 
 # ============================================================
 # FASE 7 – RESOLUCIÓN Y RESULTADOS
@@ -690,7 +690,5 @@ with st.expander("FASE 7 – Resolución del Modelo", expanded=True):
         st.write(f"OTs con ventana insuficiente (después de ajuste): {ventanas_ajustadas}")
         
         st.info("Prueba activando 'Ignorar fechas iniciales' y/o 'Desactivar balance de carga' en el panel lateral.")
-
-
 
 
