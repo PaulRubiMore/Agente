@@ -24,7 +24,7 @@ st.title("🛠️ Generador de Órdenes de Trabajo")
 # DATOS BASE
 # ============================================================
 
-disciplinas_posibles = ['Eléctrico', 'Mecánico', 'Instrumentista', 'Civil']
+disciplinas_posibles = ['TELE', 'INST', 'MECA', 'ELEC']
 criticidades = ['Alta', 'Media', 'Baja']
 ubicaciones = ['Planta', 'Remota']
 tipos_mantenimiento = ['Preventiva', 'Correctiva', 'Predictiva']
@@ -100,5 +100,6 @@ st.dataframe(
     use_container_width=True,
     height=700
 )
+
 
 
