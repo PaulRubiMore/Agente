@@ -43,10 +43,3 @@ df_ordenes = pd.DataFrame(ordenes)
 # Mostrar tabla completa
 st.subheader("Todas las Órdenes de Trabajo")
 st.dataframe(df_ordenes)
-
-# Filtro por criticidad
-filtro_criticidad = st.multiselect("Filtrar por Criticidad", options=criticidades, default=criticidades)
-df_filtrado = df_ordenes[df_ordenes['Criticidad'].isin(filtro_criticidad)]
-
-st.subheader("Órdenes filtradas")
-st.dataframe(df_filtrado)
