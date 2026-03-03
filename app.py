@@ -1,4 +1,4 @@
-============================================================
+# ============================================================
 # SISTEMA MULTI-AGENTE DE MANTENIMIENTO
 # VERSIÓN CON AJUSTE AUTOMÁTICO DE FECHAS LÍMITE
 # Y VISUALIZACIÓN DE CAMIONETAS + PERSONAL
@@ -638,3 +638,4 @@ with st.expander("FASE 7 – Resolución del Modelo", expanded=True):
         st.write(f"OTs con ventana insuficiente (después de ajuste): {ventanas_ajustadas}")
         
         st.info("Prueba activando 'Ignorar fechas iniciales' y/o 'Desactivar balance de carga' en el panel lateral.")
+
