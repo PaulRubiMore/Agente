@@ -225,6 +225,28 @@ def programar(df: pd.DataFrame, horizonte: int, riesgo_thr: 4 ) -> pd.DataFrame:
     return df_r
 
 # ─────────────────────────────────────────────────────────────────────────────
+# MÓDULO 3B: CÁLCULO DE TÉCNICOS MÍNIMOS POR ESPECIALIDAD
+# ─────────────────────────────────────────────────────────────────────────────
+def min_tecnicos(df: pd.DataFrame, horizonte: int = 36) -> pd.DataFrame:
+    import numpy as np
+    especs = sorted(df["especialidad"].str.split(",").explode().str.strip().unique())
+    mat = np.zeros((len(especs), horizonte))
+
+    for _, act in df.iterrows():
+        dur = int(act["end_sd"]) - int(act["start_sd"])
+        for h in range(int(act["start_sd"]), int(act["end_sd"])):
+            if h >= horizonte:
+                continue
+            for esp in act["especialidad"].split(","):
+                esp = esp.strip()
+                if esp in especs:
+                    mat[especs.index(esp), h] += 1
+
+    max_por_esp = mat.max(axis=1)
+    df_res = pd.DataFrame({"Especialidad": especs, "Min_Tecnicos": max_por_esp.astype(int)})
+    return df_res
+
+# ─────────────────────────────────────────────────────────────────────────────
 # MÓDULO 4: CURVA S
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -895,7 +917,8 @@ def main():
                 m      = scoring(m, w_crit, w_riesgo, w_valor, w_dur)
                 cron   = programar(m, 51, riesgo_thr)
                 cs     = curva_s(cron, 51)
-                st.session_state.update({"cron": cron, "cs": cs})
+                df_tecnicos = min_tecnicos(cron, horizonte=36)
+                st.session_state.update({"cron": cron, "cs": cs, "tecnicos": df_tecnicos})
             except Exception as e:
                 st.error(f"❌ Error: {e}")
                 st.exception(e)
@@ -904,6 +927,11 @@ def main():
 
     cron = st.session_state["cron"]
     cs   = st.session_state["cs"]
+    df_tecnicos = st.session_state["tecnicos"]
+
+    # Mostrar tabla de técnicos mínimos
+    st.subheader("🛠️ Técnicos mínimos necesarios por especialidad")
+    st.dataframe(df_tecnicos)
 
     # ── KPIs ──
     mksp  = int(cron["end_sd"].max())
@@ -1136,6 +1164,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
