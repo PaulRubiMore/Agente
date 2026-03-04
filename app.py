@@ -158,28 +158,25 @@ def scoring(df: pd.DataFrame, w_crit, w_riesgo, w_valor, w_dur) -> pd.DataFrame:
 # MÓDULO 3: PROGRAMACIÓN GREEDY + RESOURCE LEVELING
 # ─────────────────────────────────────────────────────────────────────────────
 
-def programar(df: pd.DataFrame, horizonte: int = 36, riesgo_thr: int = 3) -> pd.DataFrame:
-    """
-    Programación Greedy compactada a 36 horas.
-    Garantiza que todas las actividades queden dentro del horizonte.
-    """
-
+def programar(df: pd.DataFrame, horizonte: int, riesgo_thr: 4 ) -> pd.DataFrame:
+    
+    HORIZONTE = 36
     uso_rec = defaultdict(int)
     uso_cr  = defaultdict(set)
     rows    = []
 
-    for _, act in df.iterrows():
+    df = df.sort_values("score", ascending=False).reset_index(drop=True)
 
+    for _, act in df.iterrows():
         dur    = max(1, int(act["duracion_h"]))
         esp_k  = str(act["especialidad"])[:25]
         cap    = next((v for k, v in CAPACIDAD_RECURSOS.items() if k in esp_k.upper()), 4)
         alto   = act["criticidad_num"] >= riesgo_thr
         centro = act["centro"]
-
         inicio = None
 
-        # 🔎 Intentar ubicar dentro de 36h respetando restricciones
-        for t in range(max(1, horizonte - dur + 1)):
+        # Intentar ubicar la actividad dentro del horizonte
+        for t in range(HORIZONTE - dur + 1):
             if any(uso_rec[(esp_k, h)] >= cap for h in range(t, t + dur)):
                 continue
             if alto and set(range(t, t + dur)) & uso_cr[centro]:
@@ -187,71 +184,55 @@ def programar(df: pd.DataFrame, horizonte: int = 36, riesgo_thr: int = 3) -> pd.
             inicio = t
             break
 
-        # 🚨 Si no encuentra espacio libre → compactar al final
+        # Si no se encontró ventana, ubicar en el primer espacio disponible dentro de 36h
         if inicio is None:
-            inicio = max(0, horizonte - dur)
+            # Buscar ventana mínima que tenga menor saturación
+            min_sum = float("inf")
+            min_start = 0
+            for t in range(HORIZONTE - dur + 1):
+                carga = sum(uso_rec[(esp_k, h)] / cap for h in range(t, t + dur))
+                if alto:
+                    cr_conflict = len(set(range(t, t + dur)) & uso_cr[centro])
+                    carga += cr_conflict
+                if carga < min_sum:
+                    min_sum = carga
+                    min_start = t
+            inicio = min_start
 
         fin = inicio + dur
-
-        # 🔄 Actualizar uso de recursos
-        for h in range(inicio, min(fin, horizonte)):
+        for h in range(inicio, fin):
             uso_rec[(esp_k, h)] += 1
-
         if alto:
-            uso_cr[centro].update(range(inicio, min(fin, horizonte)))
+            uso_cr[centro].update(range(inicio, fin))
 
-        # 🕒 Fechas reales
         inicio_real = INICIO_SD + timedelta(hours=inicio)
         fin_real    = INICIO_SD + timedelta(hours=fin)
+        turno_n     = (inicio // 8) + 1
+        tmap = {1:"T1 (06-14h)", 2:"T2 (14-22h)", 3:"T3 (22-06h)",
+                4:"T4 (06-14h)", 5:"T5 (14-22h)", 6:"T6 (22-06h)"}
 
-        turno_n = (inicio // 8) + 1
-        tmap = {
-            1:"T1 (06-14h)", 
-            2:"T2 (14-22h)", 
-            3:"T3 (22-06h)",
-            4:"T4 (06-14h)", 
-            5:"T5 (14-22h)", 
-            6:"T6 (22-06h)"
-        }
-
-        rows.append({
-            **act.to_dict(),
-            "start_sd": inicio,
-            "end_sd": fin,
-            "inicio_real": inicio_real,
-            "fin_real": fin_real,
-            "turno": tmap.get(turno_n, f"T{turno_n}"),
-            "dentro_horizonte": fin <= horizonte
-        })
+        rows.append({**act.to_dict(),
+                     "start_sd": inicio, "end_sd": fin,
+                     "inicio_real": inicio_real, "fin_real": fin_real,
+                     "turno": tmap.get(turno_n, f"T{turno_n}"),
+                     "dentro_horizonte": True  # Forzamos 36h
+                    })
 
     df_r = pd.DataFrame(rows)
-
-    # 📊 Cálculos acumulados
     total = df_r["valor_global"].sum()
-    df_r["valor_global_norm"] = (
-        df_r["valor_global"] / total if total > 0 else 1 / len(df_r)
-    )
-
+    df_r["valor_global_norm"] = (df_r["valor_global"] / total) if total > 0 else 1 / len(df_r)
     df_r = df_r.sort_values("end_sd")
-
-    df_r["acum_total_calc"] = (
-        df_r["valor_global_norm"].cumsum() * 100
-    ).round(2)
-
+    df_r["acum_total_calc"]  = (df_r["valor_global_norm"].cumsum() * 100).round(2)
     df_r["acum_centro_calc"] = (
         df_r.groupby("centro")["valor_global_norm"].cumsum()
         .div(df_r.groupby("centro")["valor_global_norm"].transform("sum"))
         .mul(100).round(2)
     )
-
-    mksp  = df_r["end_sd"].max()
-
-    crit1 = df_r["ruta_critica"] == "SI"
-    crit2 = df_r["end_sd"] >= (mksp - 2)
-    crit3 = (df_r["criticidad_num"] >= 4) & (df_r["duracion_h"] >= 20)
-
+    mksp   = df_r["end_sd"].max()
+    crit1  = df_r["ruta_critica"] == "SI"
+    crit2  = df_r["end_sd"] >= (mksp - 2)
+    crit3  = (df_r["criticidad_num"] >= 4) & (df_r["duracion_h"] >= 20)
     df_r["es_critica"] = crit1 | crit2 | crit3
-
     return df_r
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1194,6 +1175,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
