@@ -116,7 +116,7 @@ def limpiar_unificar(df_act: pd.DataFrame, df_pdt: pd.DataFrame) -> pd.DataFrame
     df["especialidad"]   = df["especialidad"].fillna("DEFAULT").str.strip().str.upper()
 
     df["ejecutor"] = df["ejecutor"].fillna("").str.strip().str.upper()
-    df = df[df["ejecutor"].str.contains("MASSY ENERGY", na=False)]
+    df = df[df["ejecutor"].isin(["MASSY ENERGY", "MASSY ENERGY GEN"])]
     
     df = df.reset_index(drop=True)
     df["id"] = df.index
@@ -1114,6 +1114,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
