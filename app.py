@@ -118,7 +118,18 @@ def limpiar_unificar(df_act: pd.DataFrame, df_pdt: pd.DataFrame) -> pd.DataFrame
 
     df["ejecutor"] = df["ejecutor"].fillna("").str.strip().str.upper()
     df = df[df["ejecutor"].isin(["MASSY ENERGY", "MASSY ENERGY GEN"])]
-    
+
+    # Diccionario de correcciones comunes
+    correcciones = {
+        "ELÉCTRCIA": "ELÉCTRICA",
+        "INSTRUMEMTACIÓN": "INSTRUMENTACIÓN",
+        "INSTRUMENTACION": "INSTRUMENTACIÓN",
+        "MECÁNICA/INSTRUMENTACIÓN": "MECÁNICA, INSTRUMENTACIÓN",
+        "MECÁNICA/INSTRUMEMTACIÓN": "MECÁNICA, INSTRUMENTACIÓN",
+    }
+
+    df["especialidad"] = df["especialidad"].replace(correcciones)
+    df["especialidad"] = df["especialidad"].str.replace(r"\s*,\s*", ", ", regex=True)
     df = df.reset_index(drop=True)
     df["id"] = df.index
     return df
@@ -1164,6 +1175,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
