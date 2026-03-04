@@ -102,6 +102,7 @@ def limpiar_unificar(df_act: pd.DataFrame, df_pdt: pd.DataFrame) -> pd.DataFrame
     })
     keep = ["actividad", "criticidad_act", "hse", "interferencia", "comentarios"]
     act  = act[[c for c in keep if c in act.columns]].dropna(subset=["actividad"])
+    act  = act.drop_duplicates(subset=["actividad"])
 
     df = pdt.merge(act, on="actividad", how="left")
     df["duracion_h"]     = pd.to_numeric(df["duracion_h"], errors="coerce").fillna(1).clip(1, 50)
@@ -1114,6 +1115,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
