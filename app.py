@@ -164,7 +164,7 @@ def programar(df: pd.DataFrame, horizonte: int, riesgo_thr: 4 ) -> pd.DataFrame:
         centro = act["centro"]
         inicio = None
 
-        f# Intentar ubicar la actividad dentro del horizonte
+        # Intentar ubicar la actividad dentro del horizonte
         for t in range(HORIZONTE - dur + 1):
             if any(uso_rec[(esp_k, h)] >= cap for h in range(t, t + dur)):
                 continue
@@ -1136,6 +1136,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
