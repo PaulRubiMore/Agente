@@ -324,7 +324,7 @@ with st.expander("FASE 4 – Construcción del Modelo CP-SAT", expanded=True):
     if not all_feasible:
         st.error("⚠️ La demanda supera la capacidad en alguna disciplina. Reducir OTs o ampliar equipo.")
     else:
-        st.success("Capacidad suficiente para toda la demanda del mes")
+        st.success("✅ Capacidad suficiente para toda la demanda del mes")
 
     # ── Construcción del modelo ──────────────────────────────
     model = cp_model.CpModel()
@@ -656,4 +656,4 @@ with st.expander("FASE 7 – Resolución y Resultados", expanded=True):
     if prom_vent < 5:
         st.warning("⚠️ Ventana promedio < 5 días. Considera ampliar Fecha_Limite.")
     else:
-        st.success("✅ Ventanas suficientes – distribución natu
+        st.success("✅ Ventanas suficientes – distribución natural posible.")
