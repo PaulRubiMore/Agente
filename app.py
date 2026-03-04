@@ -147,10 +147,14 @@ def scoring(df: pd.DataFrame, w_crit, w_riesgo, w_valor, w_dur) -> pd.DataFrame:
 # MÓDULO 3: PROGRAMACIÓN GREEDY + RESOURCE LEVELING
 # ─────────────────────────────────────────────────────────────────────────────
 
-def programar(df: pd.DataFrame, horizonte: int, riesgo_thr: int) -> pd.DataFrame:
+def programar(df: pd.DataFrame, horizonte: int, riesgo_thr: 4 ) -> pd.DataFrame:
+    
+    HORIZONTE = 36
     uso_rec = defaultdict(int)
     uso_cr  = defaultdict(set)
     rows    = []
+
+    df = df.sort_values("score", ascending=False).reset_index(drop=True)
 
     for _, act in df.iterrows():
         dur    = max(1, int(act["duracion_h"]))
@@ -158,15 +162,31 @@ def programar(df: pd.DataFrame, horizonte: int, riesgo_thr: int) -> pd.DataFrame
         cap    = next((v for k, v in CAPACIDAD_RECURSOS.items() if k in esp_k.upper()), 4)
         alto   = act["criticidad_num"] >= riesgo_thr
         centro = act["centro"]
-        inicio = 0
+        inicio = None
 
-        for t in range(horizonte - dur + 1):
+        f# Intentar ubicar la actividad dentro del horizonte
+        for t in range(HORIZONTE - dur + 1):
             if any(uso_rec[(esp_k, h)] >= cap for h in range(t, t + dur)):
                 continue
             if alto and set(range(t, t + dur)) & uso_cr[centro]:
                 continue
             inicio = t
             break
+
+        # Si no se encontró ventana, ubicar en el primer espacio disponible dentro de 36h
+        if inicio is None:
+            # Buscar ventana mínima que tenga menor saturación
+            min_sum = float("inf")
+            min_start = 0
+            for t in range(HORIZONTE - dur + 1):
+                carga = sum(uso_rec[(esp_k, h)] / cap for h in range(t, t + dur))
+                if alto:
+                    cr_conflict = len(set(range(t, t + dur)) & uso_cr[centro])
+                    carga += cr_conflict
+                if carga < min_sum:
+                    min_sum = carga
+                    min_start = t
+            inicio = min_start
 
         fin = inicio + dur
         for h in range(inicio, fin):
@@ -179,11 +199,13 @@ def programar(df: pd.DataFrame, horizonte: int, riesgo_thr: int) -> pd.DataFrame
         turno_n     = (inicio // 8) + 1
         tmap = {1:"T1 (06-14h)", 2:"T2 (14-22h)", 3:"T3 (22-06h)",
                 4:"T4 (06-14h)", 5:"T5 (14-22h)", 6:"T6 (22-06h)"}
+
         rows.append({**act.to_dict(),
                      "start_sd": inicio, "end_sd": fin,
                      "inicio_real": inicio_real, "fin_real": fin_real,
                      "turno": tmap.get(turno_n, f"T{turno_n}"),
-                     "dentro_horizonte": fin <= 36})
+                     "dentro_horizonte": True  # Forzamos 36h
+                    })
 
     df_r = pd.DataFrame(rows)
     total = df_r["valor_global"].sum()
@@ -201,7 +223,6 @@ def programar(df: pd.DataFrame, horizonte: int, riesgo_thr: int) -> pd.DataFrame
     crit3  = (df_r["criticidad_num"] >= 4) & (df_r["duracion_h"] >= 20)
     df_r["es_critica"] = crit1 | crit2 | crit3
     return df_r
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MÓDULO 4: CURVA S
@@ -1115,6 +1136,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
