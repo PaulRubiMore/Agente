@@ -307,11 +307,11 @@ def min_tecnicos(df: pd.DataFrame, horizonte: int = 36, horas_turno: int = 8) ->
         })
 
     return pd.DataFrame(resultados)
-
 # ─────────────────────────────────────────────────────────────────────────────
 # MÓDULO 3C: TECNICOS POR ORDEN DE TRABAJO
 # ─────────────────────────────────────────────────────────────────────────────
 def tecnicos_por_ot(df: pd.DataFrame) -> pd.DataFrame:
+
     import math
 
     porcentajes = {
@@ -327,7 +327,9 @@ def tecnicos_por_ot(df: pd.DataFrame) -> pd.DataFrame:
         horas = act["duracion_horas"]
         especialidades = [e.strip().upper() for e in act["especialidad"].split(",")]
 
+        # UNA SOLA ESPECIALIDAD
         if len(especialidades) == 1:
+
             esp = especialidades[0]
             horas_esp = horas
             tecnicos = math.ceil(horas_esp / 8)
@@ -339,9 +341,13 @@ def tecnicos_por_ot(df: pd.DataFrame) -> pd.DataFrame:
                 "Tecnicos": tecnicos
             })
 
+        # MULTIDISCIPLINA
         else:
+
             for esp in especialidades:
+
                 if esp in porcentajes:
+
                     horas_esp = horas * porcentajes[esp]
                     tecnicos = math.ceil(horas_esp / 8)
 
@@ -1042,8 +1048,9 @@ def main():
     st.subheader("🛠️ Técnicos mínimos necesarios por especialidad")
     st.dataframe(df_tecnicos)
 
-    st.subheader("Distribución de técnicos por Orden de Trabajo")
-    st.dataframe(df_distribucion, use_container_width=True)
+   st.subheader("📋 Distribución de técnicos por Orden de Trabajo")
+   if df_distribucion is not None:
+       st.dataframe(df_distribucion, use_container_width=True)
 
     # ── KPIs ──
     mksp  = int(cron["end_sd"].max())
@@ -1276,6 +1283,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
