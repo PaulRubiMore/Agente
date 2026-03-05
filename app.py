@@ -966,7 +966,7 @@ def main():
                 m      = scoring(m, w_crit, w_riesgo, w_valor, w_dur)
                 cron   = programar(m, 51, riesgo_thr)
                 cs     = curva_s(cron, 51)
-                df_tecnicos = min_tecnicos(cron, horizonte=36)
+                df_tecnicos = min_tecnicos(cron, horizonte=36, horas_turno=8)
                 st.session_state.update({"cron": cron, "cs": cs, "tecnicos": df_tecnicos})
             except Exception as e:
                 st.error(f"❌ Error: {e}")
@@ -1213,6 +1213,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
