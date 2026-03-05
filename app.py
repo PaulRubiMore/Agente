@@ -293,6 +293,74 @@ def min_tecnicos(df: pd.DataFrame, horizonte: int = 36, horas_turno: int = 8) ->
             "Tecnicos_Minimos_Requeridos": int(tecnicos_final)
         })
 
+    return pd.DataFrame(resultados)def min_tecnicos(df: pd.DataFrame, horizonte: int = 36, horas_turno: int = 8) -> pd.DataFrame:
+    
+    import numpy as np
+    import pandas as pd
+
+    # porcentajes definidos
+    PESOS = {
+        "MECÁNICA": 0.5,
+        "ELÉCTRICA": 0.3,
+        "INSTRUMENTACIÓN": 0.2
+    }
+
+    especs = list(PESOS.keys())
+    idx_map = {esp: i for i, esp in enumerate(especs)}
+
+    mat = np.zeros((len(especs), horizonte))
+    horas_totales = {esp: 0 for esp in especs}
+
+    for _, act in df.iterrows():
+
+        start = int(act["start_sd"])
+        end   = int(act["end_sd"])
+        dur   = end - start
+
+        # limpiar especialidades
+        esp_list = (
+            str(act["especialidad"])
+            .replace("/", ",")
+            .upper()
+            .split(",")
+        )
+
+        esp_list = [e.strip() for e in esp_list if e.strip() in PESOS]
+
+        if not esp_list:
+            continue
+
+        for esp in esp_list:
+
+            peso = PESOS[esp]
+            dur_esp = dur * peso
+            idx = idx_map[esp]
+
+            # simultaneidad
+            for h in range(start, min(end, horizonte)):
+                mat[idx, h] += peso
+
+            # horas acumuladas
+            horas_totales[esp] += dur_esp
+
+    pico_simultaneo = np.ceil(mat.max(axis=1)).astype(int)
+
+    resultados = []
+
+    for esp in especs:
+
+        horas = horas_totales[esp]
+        tecnicos_por_horas = int(np.ceil(horas / horas_turno))
+        tecnicos_final = max(pico_simultaneo[idx_map[esp]], tecnicos_por_horas)
+
+        resultados.append({
+            "Especialidad": esp,
+            "Pico_Simultaneo": int(pico_simultaneo[idx_map[esp]]),
+            "Horas_Totales": round(horas, 1),
+            "Tecnicos_por_horas": tecnicos_por_horas,
+            "Tecnicos_Minimos_Requeridos": tecnicos_final
+        })
+
     return pd.DataFrame(resultados)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1213,6 +1281,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
