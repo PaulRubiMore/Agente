@@ -238,24 +238,62 @@ def programar(df: pd.DataFrame, horizonte: int, riesgo_thr: 4 ) -> pd.DataFrame:
 # ─────────────────────────────────────────────────────────────────────────────
 # MÓDULO 3B: CÁLCULO DE TÉCNICOS MÍNIMOS POR ESPECIALIDAD
 # ─────────────────────────────────────────────────────────────────────────────
-def min_tecnicos(df: pd.DataFrame, horizonte: int = 36) -> pd.DataFrame:
+def min_tecnicos(df: pd.DataFrame, horizonte: int = 36, horas_turno: int = 8) -> pd.DataFrame:
+    
     import numpy as np
+    import pandas as pd
+    
     especs = sorted(df["especialidad"].str.split(",").explode().str.strip().unique())
+    
+    # Matriz para simultaneidad
     mat = np.zeros((len(especs), horizonte))
+    
+    # Horas totales por especialidad
+    horas_totales = {esp: 0 for esp in especs}
 
     for _, act in df.iterrows():
-        dur = int(act["end_sd"]) - int(act["start_sd"])
-        for h in range(int(act["start_sd"]), int(act["end_sd"])):
-            if h >= horizonte:
+        
+        start = int(act["start_sd"])
+        end   = int(act["end_sd"])
+        dur   = end - start
+        
+        for esp in act["especialidad"].split(","):
+            
+            esp = esp.strip()
+            
+            if esp not in especs:
                 continue
-            for esp in act["especialidad"].split(","):
-                esp = esp.strip()
-                if esp in especs:
-                    mat[especs.index(esp), h] += 1
+            
+            idx = especs.index(esp)
+            
+            # sumar simultaneidad
+            for h in range(start, end):
+                if h < horizonte:
+                    mat[idx, h] += 1
+            
+            # sumar horas totales
+            horas_totales[esp] += dur
 
-    max_por_esp = mat.max(axis=1)
-    df_res = pd.DataFrame({"Especialidad": especs, "Min_Tecnicos": max_por_esp.astype(int)})
-    return df_res
+    # pico simultáneo
+    pico_simultaneo = mat.max(axis=1)
+    
+    resultados = []
+
+    for i, esp in enumerate(especs):
+        
+        tecnicos_por_horas = int(np.ceil(horas_totales[esp] / horas_turno))
+        
+        tecnicos_final = max(pico_simultaneo[i], tecnicos_por_horas)
+
+        resultados.append({
+            "Especialidad": esp,
+            "Pico_Simultaneo": int(pico_simultaneo[i]),
+            "Horas_Totales": int(horas_totales[esp]),
+            "Tecnicos_por_horas": tecnicos_por_horas,
+            "Tecnicos_Minimos_Requeridos": int(tecnicos_final)
+        })
+
+    return pd.DataFrame(resultados)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MÓDULO 4: CURVA S
@@ -1175,6 +1213,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
