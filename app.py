@@ -1049,8 +1049,7 @@ def main():
     st.dataframe(df_tecnicos)
 
    st.subheader("📋 Distribución de técnicos por Orden de Trabajo")
-   if df_distribucion is not None:
-       st.dataframe(df_distribucion, use_container_width=True)
+   st.dataframe(df_distribucion, use_container_width=True)
 
     # ── KPIs ──
     mksp  = int(cron["end_sd"].max())
@@ -1283,6 +1282,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
