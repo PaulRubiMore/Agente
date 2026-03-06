@@ -311,14 +311,15 @@ def min_tecnicos(df: pd.DataFrame, horizonte: int = 36, horas_turno: int = 8) ->
 # ─────────────────────────────────────────────────────────────────────────────
 # MÓDULO 3C: TECNICOS POR ORDEN DE TRABAJO
 # ─────────────────────────────────────────────────────────────────────────────
-
-def tecnicos_por_ot(df: pd.DataFrame) -> pd.DataFrame:
+def tecnicos_por_ot(df):
 
     PESOS = {
         "MECÁNICA": 0.5,
         "ELÉCTRICA": 0.3,
         "INSTRUMENTACIÓN": 0.2
     }
+
+    HORAS_TECNICO = 8
 
     rows = []
 
@@ -333,32 +334,51 @@ def tecnicos_por_ot(df: pd.DataFrame) -> pd.DataFrame:
             .split(",")
         )
 
-        esp_list = [e.strip() for e in esp_list if e.strip() in PESOS]
+        esp_list = [e.strip() for e in esp_list if e.strip()]
 
-        if not esp_list:
-            continue
+        # CASO 1: UNA SOLA ESPECIALIDAD
+        if len(esp_list) == 1:
 
-        for esp in esp_list:
-
-            peso = PESOS[esp]
-
-            horas_esp = dur * peso
-
-            tecnicos = max(1, int(np.ceil(horas_esp / dur)))
+            horas = dur
+            tecnicos = int(np.ceil(horas / HORAS_TECNICO))
 
             rows.append({
                 "Orden": act["orden"],
                 "Actividad": act["actividad"],
                 "Centro": act["centro"],
-                "Especialidad": esp,
+                "Especialidad": esp_list[0],
                 "Duracion_h": dur,
-                "Horas_Especialidad": round(horas_esp,2),
+                "Horas_Especialidad": horas,
                 "Tecnicos_Requeridos": tecnicos,
                 "Inicio_SD": act["start_sd"],
                 "Fin_SD": act["end_sd"]
             })
 
+        # CASO 2: MULTI ESPECIALIDAD
+        else:
+
+            for esp in esp_list:
+
+                peso = PESOS.get(esp, 0)
+
+                horas = dur * peso
+
+                tecnicos = int(np.ceil(horas / HORAS_TECNICO))
+
+                rows.append({
+                    "Orden": act["orden"],
+                    "Actividad": act["actividad"],
+                    "Centro": act["centro"],
+                    "Especialidad": esp,
+                    "Duracion_h": dur,
+                    "Horas_Especialidad": round(horas,2),
+                    "Tecnicos_Requeridos": tecnicos,
+                    "Inicio_SD": act["start_sd"],
+                    "Fin_SD": act["end_sd"]
+                })
+
     return pd.DataFrame(rows)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MÓDULO 4: CURVA S
@@ -1285,6 +1305,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
