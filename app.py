@@ -307,9 +307,58 @@ def min_tecnicos(df: pd.DataFrame, horizonte: int = 36, horas_turno: int = 8) ->
         })
 
     return pd.DataFrame(resultados)
+    
 # ─────────────────────────────────────────────────────────────────────────────
 # MÓDULO 3C: TECNICOS POR ORDEN DE TRABAJO
 # ─────────────────────────────────────────────────────────────────────────────
+
+def tecnicos_por_ot(df: pd.DataFrame) -> pd.DataFrame:
+
+    PESOS = {
+        "MECÁNICA": 0.5,
+        "ELÉCTRICA": 0.3,
+        "INSTRUMENTACIÓN": 0.2
+    }
+
+    rows = []
+
+    for _, act in df.iterrows():
+
+        dur = act["duracion_h"]
+
+        esp_list = (
+            str(act["especialidad"])
+            .replace("/", ",")
+            .upper()
+            .split(",")
+        )
+
+        esp_list = [e.strip() for e in esp_list if e.strip() in PESOS]
+
+        if not esp_list:
+            continue
+
+        for esp in esp_list:
+
+            peso = PESOS[esp]
+
+            horas_esp = dur * peso
+
+            tecnicos = max(1, int(np.ceil(horas_esp / dur)))
+
+            rows.append({
+                "Orden": act["orden"],
+                "Actividad": act["actividad"],
+                "Centro": act["centro"],
+                "Especialidad": esp,
+                "Duracion_h": dur,
+                "Horas_Especialidad": round(horas_esp,2),
+                "Tecnicos_Requeridos": tecnicos,
+                "Inicio_SD": act["start_sd"],
+                "Fin_SD": act["end_sd"]
+            })
+
+    return pd.DataFrame(rows)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MÓDULO 4: CURVA S
@@ -983,7 +1032,8 @@ def main():
                 cron   = programar(m, 51, riesgo_thr)
                 cs     = curva_s(cron, 51)
                 df_tecnicos = min_tecnicos(cron, horizonte=36, horas_turno=8)
-                st.session_state.update({"cron": cron, "cs": cs, "tecnicos": df_tecnicos})
+                df_tecnicos_ot  = tecnicos_por_ot(cron)
+                st.session_state.update({"cron": cron, "cs": cs, "tecnicos": df_tecnicos, "tecnicos_ot": df_tecnicos_ot})
             except Exception as e:
                 st.error(f"❌ Error: {e}")
                 st.exception(e)
@@ -993,11 +1043,15 @@ def main():
     cron = st.session_state["cron"]
     cs   = st.session_state["cs"]
     df_tecnicos = st.session_state["tecnicos"]
+    df_tecnicos_ot = st.session_state["tecnicos_ot"]
  
     
     # Mostrar tabla de técnicos mínimos
     st.subheader("🛠️ Técnicos mínimos necesarios por especialidad")
     st.dataframe(df_tecnicos)
+
+    st.subheader("👷 Técnicos requeridos por Orden de Trabajo")
+    st.dataframe(df_tecnicos_ot)
 
 
     # ── KPIs ──
@@ -1231,6 +1285,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
