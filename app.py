@@ -348,10 +348,7 @@ def tecnicos_por_ot(df):
                 "Centro": act["centro"],
                 "Especialidad": esp_list[0],
                 "Duracion_h": dur,
-                "Horas_Especialidad": horas,
                 "Tecnicos_Requeridos": tecnicos,
-                "Inicio_SD": act["start_sd"],
-                "Fin_SD": act["end_sd"]
             })
 
         # CASO 2: MULTI ESPECIALIDAD
@@ -373,8 +370,6 @@ def tecnicos_por_ot(df):
                     "Duracion_h": dur,
                     "Horas_Especialidad": round(horas,2),
                     "Tecnicos_Requeridos": tecnicos,
-                    "Inicio_SD": act["start_sd"],
-                    "Fin_SD": act["end_sd"]
                 })
 
     return pd.DataFrame(rows)
@@ -1305,6 +1300,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
