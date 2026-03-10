@@ -373,9 +373,6 @@ def tecnicos_por_ot(df):
                 })
 
     return pd.DataFrame(rows)
-# ─────────────────────────────────────────────────────────
-# MÓDULO 3D: OPTIMIZADOR DE TÉCNICOS POR CENTRO
-# ─────────────────────────────────────────────────────────
 
 def optimizar_tecnicos(cron, horizonte=36, horas_turno=8):
 
@@ -383,11 +380,8 @@ def optimizar_tecnicos(cron, horizonte=36, horas_turno=8):
     import math
 
     cron = cron.copy()
-
-    # horas-hombre restantes
     cron["hh_restantes"] = cron["duracion_h"]
 
-    # calcular técnicos mínimos por centro y especialidad
     demanda = cron.groupby(["centro","especialidad"])["hh_restantes"].sum().reset_index()
 
     tecnicos = []
@@ -402,54 +396,69 @@ def optimizar_tecnicos(cron, horizonte=36, horas_turno=8):
                 "tecnico": f"{r['centro']}_{r['especialidad']}_T{i+1}",
                 "centro": r["centro"],
                 "especialidad": r["especialidad"],
-                "horas_trabajadas": 0
+                "horas": 0,
+                "ot_actual": None
             })
 
     tecnicos = pd.DataFrame(tecnicos)
 
-    # matriz técnico × hora
     matriz = pd.DataFrame(
         "",
         index=tecnicos["tecnico"],
         columns=list(range(horizonte))
     )
 
-    # recorrer cada hora
     for h in range(horizonte):
 
-        # OTs activas
-        activas = cron[
-            (cron["start_sd"] <= h) &
-            (cron["end_sd"] > h) &
-            (cron["hh_restantes"] > 0)
-        ]
+        for idx, t in tecnicos.iterrows():
 
-        # ordenar por mayor trabajo pendiente
-        activas = activas.sort_values("hh_restantes", ascending=False)
+            if t["horas"] >= horas_turno:
+                continue
 
-        for i, ot in activas.iterrows():
+            ot = t["ot_actual"]
 
-            # técnicos disponibles
-            candidatos = tecnicos[
-                (tecnicos["centro"] == ot["centro"]) &
-                (tecnicos["especialidad"] == ot["especialidad"]) &
-                (tecnicos["horas_trabajadas"] < horas_turno)
+            # continuar misma OT
+            if ot is not None:
+
+                fila = cron[cron["orden"] == ot]
+
+                if not fila.empty:
+
+                    i = fila.index[0]
+
+                    if cron.loc[i,"hh_restantes"] > 0:
+
+                        matriz.loc[t["tecnico"],h] = ot
+
+                        tecnicos.loc[idx,"horas"] += 1
+                        cron.loc[i,"hh_restantes"] -= 1
+
+                        continue
+
+            # buscar nueva OT
+            activas = cron[
+                (cron["start_sd"] <= h) &
+                (cron["end_sd"] > h) &
+                (cron["hh_restantes"] > 0) &
+                (cron["centro"] == t["centro"]) &
+                (cron["especialidad"] == t["especialidad"])
             ]
 
-            for idx, t in candidatos.iterrows():
+            if activas.empty:
+                continue
 
-                if cron.loc[i,"hh_restantes"] <= 0:
-                    break
+            activas = activas.sort_values("hh_restantes", ascending=False)
 
-                nombre = t["tecnico"]
+            i = activas.index[0]
 
-                if matriz.loc[nombre,h] == "":
+            ot = cron.loc[i,"orden"]
 
-                    matriz.loc[nombre,h] = ot["orden"]
+            matriz.loc[t["tecnico"],h] = ot
 
-                    tecnicos.loc[idx,"horas_trabajadas"] += 1
+            tecnicos.loc[idx,"horas"] += 1
+            tecnicos.loc[idx,"ot_actual"] = ot
 
-                    cron.loc[i,"hh_restantes"] -= 1
+            cron.loc[i,"hh_restantes"] -= 1
 
     return matriz
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1383,6 +1392,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
