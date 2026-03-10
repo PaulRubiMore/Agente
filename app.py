@@ -374,58 +374,66 @@ def tecnicos_por_ot(df):
 
     return pd.DataFrame(rows)
 # ─────────────────────────────────────────────────────────
-# MÓDULO 3D – PLANIFICADOR REAL DE TÉCNICOS
+# MÓDULO 3D: OPTIMIZADOR DE TÉCNICOS POR CENTRO
 # ─────────────────────────────────────────────────────────
 
-def planificar_tecnicos(cron, horizonte=36, horas_turno=8):
+def optimizar_tecnicos(cron, horizonte=36, horas_turno=8):
 
     import pandas as pd
+    import math
 
-    # crear lista de técnicos basada en cálculo previo
+    cron = cron.copy()
+
+    # horas-hombre restantes
+    cron["hh_restantes"] = cron["duracion_h"]
+
+    # calcular técnicos mínimos por centro y especialidad
+    demanda = cron.groupby(["centro","especialidad"])["hh_restantes"].sum().reset_index()
+
     tecnicos = []
 
-    conteo = cron.groupby(["centro","especialidad"]).size().reset_index()
+    for _, r in demanda.iterrows():
 
-    for _, r in conteo.iterrows():
+        n = math.ceil(r["hh_restantes"] / horas_turno)
 
-        for i in range(5):   # base inicial (luego se optimiza)
+        for i in range(n):
 
             tecnicos.append({
                 "tecnico": f"{r['centro']}_{r['especialidad']}_T{i+1}",
                 "centro": r["centro"],
                 "especialidad": r["especialidad"],
-                "horas": 0
+                "horas_trabajadas": 0
             })
 
     tecnicos = pd.DataFrame(tecnicos)
 
+    # matriz técnico × hora
     matriz = pd.DataFrame(
         "",
         index=tecnicos["tecnico"],
         columns=list(range(horizonte))
     )
 
-    cron = cron.copy()
-
-    # convertir duración en horas-hombre restantes
-    cron["hh_restantes"] = cron["duracion_h"]
-
-    # recorrer hora por hora
+    # recorrer cada hora
     for h in range(horizonte):
 
-        for i, act in cron.iterrows():
+        # OTs activas
+        activas = cron[
+            (cron["start_sd"] <= h) &
+            (cron["end_sd"] > h) &
+            (cron["hh_restantes"] > 0)
+        ]
 
-            if not (act["start_sd"] <= h < act["end_sd"]):
-                continue
+        # ordenar por mayor trabajo pendiente
+        activas = activas.sort_values("hh_restantes", ascending=False)
 
-            if cron.loc[i,"hh_restantes"] <= 0:
-                continue
+        for i, ot in activas.iterrows():
 
-            # buscar técnicos disponibles
+            # técnicos disponibles
             candidatos = tecnicos[
-                (tecnicos["centro"] == act["centro"]) &
-                (tecnicos["especialidad"] == act["especialidad"]) &
-                (tecnicos["horas"] < horas_turno)
+                (tecnicos["centro"] == ot["centro"]) &
+                (tecnicos["especialidad"] == ot["especialidad"]) &
+                (tecnicos["horas_trabajadas"] < horas_turno)
             ]
 
             for idx, t in candidatos.iterrows():
@@ -435,16 +443,15 @@ def planificar_tecnicos(cron, horizonte=36, horas_turno=8):
 
                 nombre = t["tecnico"]
 
-                if matriz.loc[nombre, h] == "":
+                if matriz.loc[nombre,h] == "":
 
-                    matriz.loc[nombre, h] = act["orden"]
+                    matriz.loc[nombre,h] = ot["orden"]
 
-                    tecnicos.loc[idx,"horas"] += 1
+                    tecnicos.loc[idx,"horas_trabajadas"] += 1
 
                     cron.loc[i,"hh_restantes"] -= 1
 
     return matriz
-
 # ─────────────────────────────────────────────────────────────────────────────
 # MÓDULO 4: CURVA S
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1118,7 +1125,7 @@ def main():
                 cs     = curva_s(cron, 51)
                 df_tecnicos = min_tecnicos(cron, horizonte=36, horas_turno=8)
                 df_tecnicos_ot  = tecnicos_por_ot(cron)
-                matriz_tecnicos = planificar_tecnicos(cron)
+                matriz_tecnicos = optimizar_tecnicos(cron)
                 st.session_state.update({"cron": cron, "cs": cs, "tecnicos": df_tecnicos, "tecnicos_ot": df_tecnicos_ot, "matriz_tecnicos": matriz_tecnicos})
             except Exception as e:
                 st.error(f"❌ Error: {e}")
@@ -1376,6 +1383,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
