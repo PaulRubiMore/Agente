@@ -375,7 +375,7 @@ def tecnicos_por_ot(df):
     return pd.DataFrame(rows)
 
 # ─────────────────────────────────────────────────────────
-# MÓDULO 3D-A – DIVISIÓN DE ESPECIALIDADES
+# MÓDULO 3D-A – DIVISIÓN DE ESPECIALIDADES (CORREGIDO)
 # ─────────────────────────────────────────────────────────
 
 def dividir_especialidades(cron):
@@ -407,13 +407,13 @@ def dividir_especialidades(cron):
                 peso = PESOS.get(esp, 1/len(especialidades))
 
                 nuevo["especialidad"] = esp
-                nuevo["duracion_h"] = r["duracion_h"] * peso
+                nuevo["duracion_h"] = int(round(r["duracion_h"] * peso))
 
                 filas.append(nuevo)
 
     cron_nuevo = pd.DataFrame(filas)
 
-    return cron_nuevo 
+    return cron_nuevo
     
 # ─────────────────────────────────────────────────────────
 # MÓDULO 3D – OPTIMIZADOR DE TÉCNICOS (VERSIÓN FINAL)
@@ -1429,6 +1429,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
