@@ -373,6 +373,46 @@ def tecnicos_por_ot(df):
                 })
 
     return pd.DataFrame(rows)
+# ─────────────────────────────────────────────────────────
+# MÓDULO – DIVISIÓN DE ESPECIALIDADES
+# ─────────────────────────────────────────────────────────
+
+def dividir_especialidades(df):
+
+    import pandas as pd
+
+    PESOS = {
+        "MECÁNICA": 0.5,
+        "ELÉCTRICA": 0.3,
+        "INSTRUMENTACIÓN": 0.2
+    }
+
+    filas = []
+
+    for _, row in df.iterrows():
+
+        especialidades = str(row["especialidad"]).split(",")
+
+        especialidades = [e.strip() for e in especialidades]
+
+        if len(especialidades) == 1:
+
+            filas.append(row)
+
+        else:
+
+            for esp in especialidades:
+
+                nueva = row.copy()
+
+                peso = PESOS.get(esp,0)
+
+                nueva["especialidad"] = esp
+                nueva["duracion_h"] = row["duracion_h"] * peso
+
+                filas.append(nueva)
+
+    return pd.DataFrame(filas)
 
 # ─────────────────────────────────────────────────────────
 # MÓDULO 3D – OPTIMIZADOR DE TÉCNICOS (VERSIÓN FINAL)
@@ -1128,6 +1168,7 @@ def main():
                 cs     = curva_s(cron, 51)
                 df_tecnicos = min_tecnicos(cron, horizonte=36, horas_turno=8)
                 df_tecnicos_ot  = tecnicos_por_ot(cron)
+                cron = dividir_especialidades(cron)
                 matriz_tecnicos = optimizar_tecnicos_turnos(cron)
                 st.session_state.update({"cron": cron, "cs": cs, "tecnicos": df_tecnicos, "tecnicos_ot": df_tecnicos_ot, "matriz_tecnicos": matriz_tecnicos})
             except Exception as e:
@@ -1386,6 +1427,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
