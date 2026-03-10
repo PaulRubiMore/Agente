@@ -373,38 +373,28 @@ def tecnicos_por_ot(df):
                 })
 
     return pd.DataFrame(rows)
-# ─────────────────────────────────────────────────────────────────────────────
-# MÓDULO 3D: PLANIFICADOR DE TÉCNICOS POR CENTRO
-# ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────
+# MÓDULO 3D – PLANIFICADOR REAL DE TÉCNICOS
+# ─────────────────────────────────────────────────────────
 
-def planificar_tecnicos_por_centro(cron, horizonte=36, horas_turno=8):
+def planificar_tecnicos(cron, horizonte=36, horas_turno=8):
 
     import pandas as pd
-    import numpy as np
 
-    PESOS = {
-        "MECÁNICA": 0.5,
-        "ELÉCTRICA": 0.3,
-        "INSTRUMENTACIÓN": 0.2
-    }
-
-    # lista de tecnicos
+    # crear lista de técnicos basada en cálculo previo
     tecnicos = []
 
     conteo = cron.groupby(["centro","especialidad"]).size().reset_index()
 
     for _, r in conteo.iterrows():
 
-        centro = r["centro"]
-        esp    = r["especialidad"]
-
-        for i in range(3):  # base inicial de tecnicos
+        for i in range(5):   # base inicial (luego se optimiza)
 
             tecnicos.append({
-                "tecnico": f"{centro}_{esp}_T{i+1}",
-                "centro": centro,
-                "especialidad": esp,
-                "horas_trabajadas": 0
+                "tecnico": f"{r['centro']}_{r['especialidad']}_T{i+1}",
+                "centro": r["centro"],
+                "especialidad": r["especialidad"],
+                "horas": 0
             })
 
     tecnicos = pd.DataFrame(tecnicos)
@@ -416,8 +406,11 @@ def planificar_tecnicos_por_centro(cron, horizonte=36, horas_turno=8):
     )
 
     cron = cron.copy()
-    cron["horas_restantes"] = cron["duracion_h"]
 
+    # convertir duración en horas-hombre restantes
+    cron["hh_restantes"] = cron["duracion_h"]
+
+    # recorrer hora por hora
     for h in range(horizonte):
 
         for i, act in cron.iterrows():
@@ -425,30 +418,30 @@ def planificar_tecnicos_por_centro(cron, horizonte=36, horas_turno=8):
             if not (act["start_sd"] <= h < act["end_sd"]):
                 continue
 
-            if cron.loc[i,"horas_restantes"] <= 0:
+            if cron.loc[i,"hh_restantes"] <= 0:
                 continue
 
+            # buscar técnicos disponibles
             candidatos = tecnicos[
                 (tecnicos["centro"] == act["centro"]) &
-                (tecnicos["horas_trabajadas"] < horas_turno)
+                (tecnicos["especialidad"] == act["especialidad"]) &
+                (tecnicos["horas"] < horas_turno)
             ]
 
-            if candidatos.empty:
-                continue
+            for idx, t in candidatos.iterrows():
 
-            t = candidatos.iloc[0]
-            nombre = t["tecnico"]
+                if cron.loc[i,"hh_restantes"] <= 0:
+                    break
 
-            if matriz.loc[nombre, h] == "":
+                nombre = t["tecnico"]
 
-                matriz.loc[nombre, h] = act["orden"]
+                if matriz.loc[nombre, h] == "":
 
-                tecnicos.loc[
-                    tecnicos["tecnico"] == nombre,
-                    "horas_trabajadas"
-                ] += 1
+                    matriz.loc[nombre, h] = act["orden"]
 
-                cron.loc[i,"horas_restantes"] -= 1
+                    tecnicos.loc[idx,"horas"] += 1
+
+                    cron.loc[i,"hh_restantes"] -= 1
 
     return matriz
 
@@ -1383,6 +1376,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
