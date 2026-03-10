@@ -74,7 +74,7 @@ def cargar_pdt(b: bytes) -> pd.DataFrame:
 
 
 def limpiar_unificar(df_act: pd.DataFrame, df_pdt: pd.DataFrame) -> pd.DataFrame:
-    # ── Renombrar columnas del PDT
+    # ── Limpiar columnas PDT
     pdt = df_pdt.rename(columns={
         "Centro planificación": "centro",
         "Actividades":          "actividad",
@@ -95,10 +95,14 @@ def limpiar_unificar(df_act: pd.DataFrame, df_pdt: pd.DataFrame) -> pd.DataFrame
         "% ACUM TOTAL":         "acum_total",
         "RUTA CRITICA":         "ruta_critica",
     })
-    pdt = pdt[pdt["actividad"].notna()].copy()
-    pdt = pdt[pd.to_numeric(pdt["duracion_h"], errors="coerce") > 0].copy()
 
-    # ── Renombrar columnas del listado de actividades
+    # Filtrar filas válidas y únicas por actividad + orden
+    pdt = pdt[pdt["actividad"].notna()].copy()
+    pdt["duracion_h"] = pd.to_numeric(pdt["TIEMPO (Hrs)"] if "TIEMPO (Hrs)" in pdt else pdt["duracion_h"], errors="coerce").fillna(1)
+    pdt = pdt[pdt["duracion_h"] > 0]
+    pdt = pdt.drop_duplicates(subset=["actividad", "orden"])
+
+    # ── Limpiar listado de actividades
     act = df_act.rename(columns={
         "Actividades": "actividad",
         "Centro planificación": "centro",
@@ -108,29 +112,25 @@ def limpiar_unificar(df_act: pd.DataFrame, df_pdt: pd.DataFrame) -> pd.DataFrame
         "COMENTARIOS": "comentarios",
     })
     keep = ["actividad", "criticidad_act", "hse", "interferencia", "comentarios"]
-    act  = act[[c for c in keep if c in act.columns]].dropna(subset=["actividad"])
-    act  = act.drop_duplicates(subset=["actividad"])
+    act = act[[c for c in keep if c in act.columns]].dropna(subset=["actividad"])
+    act = act.drop_duplicates(subset=["actividad"])
 
-    # ── Merge PDT + listado de actividades
+    # ── Merge, solo para agregar info extra sin duplicar
     df = pdt.merge(act, on="actividad", how="left")
 
-    # ── Limpiar y normalizar columnas
-    df["duracion_h"]     = pd.to_numeric(df["duracion_h"], errors="coerce").fillna(1).clip(1, 50)
-    df["criticidad_num"] = pd.to_numeric(df["criticidad_num"], errors="coerce").fillna(2)
-    df["riesgo_num"]     = pd.to_numeric(df["riesgo_num"], errors="coerce").fillna(1)
-    df["valor_global"]   = pd.to_numeric(df["valor_global"], errors="coerce").fillna(0)
-    df["avance_pct"]     = pd.to_numeric(df["avance_pct"], errors="coerce").fillna(0)
-    df["criticidad"]     = df["criticidad"].fillna("Baja").str.strip()
-    df["ruta_critica"]   = df["ruta_critica"].fillna("NO").str.upper().str.strip()
-    df["centro"]         = df["centro"].fillna("GEN").str.strip().str.upper()
-    df["estado"]         = df["estado"].fillna("PROGRAMADO").str.strip().str.upper()
-    df["especialidad"]   = df["especialidad"].fillna("DEFAULT").str.strip().str.upper()
-    df["ejecutor"]       = df["ejecutor"].fillna("").str.strip().str.upper()
+    # ── Normalizar columnas
+    df["criticidad_num"] = pd.to_numeric(df.get("criticidad_num", 2), errors="coerce").fillna(2)
+    df["riesgo_num"] = pd.to_numeric(df.get("riesgo_num", 1), errors="coerce").fillna(1)
+    df["valor_global"] = pd.to_numeric(df.get("valor_global", 0), errors="coerce").fillna(0)
+    df["avance_pct"] = pd.to_numeric(df.get("avance_pct", 0), errors="coerce").fillna(0)
+    df["criticidad"] = df["criticidad"].fillna("Baja").str.strip()
+    df["ruta_critica"] = df["ruta_critica"].fillna("NO").str.upper().str.strip()
+    df["centro"] = df["centro"].fillna("GEN").str.strip().str.upper()
+    df["estado"] = df["estado"].fillna("PROGRAMADO").str.strip().str.upper()
+    df["especialidad"] = df["especialidad"].fillna("DEFAULT").str.strip().str.upper()
+    df["ejecutor"] = df["ejecutor"].fillna("").str.strip().str.upper()
 
-    # ── Filtrar solo actividades de MASSY ENERGY
-    df = df[df["ejecutor"].isin(["MASSY ENERGY", "MASSY ENERGY GEN"])]
-
-    # ── Diccionario de correcciones comunes
+    # ── Correcciones de nombres de especialidad
     correcciones = {
         "ELÉCTRCIA": "ELÉCTRICA",
         "INSTRUMEMTACIÓN": "INSTRUMENTACIÓN",
@@ -141,8 +141,11 @@ def limpiar_unificar(df_act: pd.DataFrame, df_pdt: pd.DataFrame) -> pd.DataFrame
     df["especialidad"] = df["especialidad"].replace(correcciones)
     df["especialidad"] = df["especialidad"].str.replace(r"\s*,\s*", ", ", regex=True)
 
-    # ── Eliminar duplicados finales por actividad
-    df = df.drop_duplicates(subset=["actividad"]).reset_index(drop=True)
+    # ── Filtrar solo MASSY ENERGY
+    df = df[df["ejecutor"].isin(["MASSY ENERGY", "MASSY ENERGY GEN"])]
+
+    # ── Eliminar duplicados finales por actividad + orden
+    df = df.drop_duplicates(subset=["actividad", "orden"]).reset_index(drop=True)
     df["id"] = df.index
 
     return df
