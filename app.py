@@ -53,6 +53,8 @@ CAPACIDAD_RECURSOS = {
 }
 
 
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # MÓDULO 1: CARGA Y LIMPIEZA
 # ─────────────────────────────────────────────────────────────────────────────
@@ -307,7 +309,34 @@ def min_tecnicos(df: pd.DataFrame, horizonte: int = 36, horas_turno: int = 8) ->
         })
 
     return pd.DataFrame(resultados)
-    
+
+def calcular_pesos(especialidades):
+
+    esp = sorted(set(especialidades))
+
+    # 1 especialidad
+    if len(esp) == 1:
+        return {esp[0]: 1.0}
+
+    # 2 especialidades
+    if len(esp) == 2:
+
+        if set(esp) == {"MECÁNICA", "ELÉCTRICA"}:
+            return {"MECÁNICA": 0.65, "ELÉCTRICA": 0.35}
+
+        if set(esp) == {"MECÁNICA", "INSTRUMENTACIÓN"}:
+            return {"MECÁNICA": 0.70, "INSTRUMENTACIÓN": 0.30}
+
+        if set(esp) == {"ELÉCTRICA", "INSTRUMENTACIÓN"}:
+            return {"ELÉCTRICA": 0.60, "INSTRUMENTACIÓN": 0.40}
+
+    # 3 especialidades
+    return {
+        "MECÁNICA": 0.5,
+        "ELÉCTRICA": 0.3,
+        "INSTRUMENTACIÓN": 0.2
+    }
+
 # ─────────────────────────────────────────────────────────────────────────────
 # MÓDULO 3C: TECNICOS POR ORDEN DE TRABAJO
 # ─────────────────────────────────────────────────────────────────────────────
@@ -315,12 +344,6 @@ def tecnicos_por_ot(df):
 
     import numpy as np
     import pandas as pd
-
-    PESOS = {
-        "MECÁNICA": 0.5,
-        "ELÉCTRICA": 0.3,
-        "INSTRUMENTACIÓN": 0.2
-    }
 
     HORAS_TECNICO = 8
 
@@ -348,20 +371,12 @@ def tecnicos_por_ot(df):
 
         esp_list = [e.strip() for e in esp_list if e.strip()]
 
-        pesos_act = {e: PESOS.get(e,0) for e in esp_list}
+        # NUEVA LÓGICA DE PESOS
+        pesos = calcular_pesos(esp_list)
 
-        suma = sum(pesos_act.values())
+        for esp, peso in pesos.items():
 
-        if suma == 0:
-            pesos_norm = {e:1/len(esp_list) for e in esp_list}
-        else:
-            pesos_norm = {k:v/suma for k,v in pesos_act.items()}
-
-        for esp in esp_list:
-
-            peso = pesos_norm[esp]
-
-            horas = dur * peso
+            horas = round(dur * peso, 2)
 
             horas_redondeadas = redondear_hora(horas)
 
@@ -388,12 +403,6 @@ def dividir_especialidades(cron):
 
     import pandas as pd
 
-    PESOS = {
-        "MECÁNICA": 0.5,
-        "ELÉCTRICA": 0.3,
-        "INSTRUMENTACIÓN": 0.2
-    }
-
     def redondear_hora(valor):
         entero = int(valor)
         decimal = valor - entero
@@ -416,20 +425,14 @@ def dividir_especialidades(cron):
 
         especialidades = [e.strip() for e in especialidades if e.strip()]
 
-        pesos_act = {e: PESOS.get(e,0) for e in especialidades}
+        # NUEVA LÓGICA
+        pesos = calcular_pesos(especialidades)
 
-        suma = sum(pesos_act.values())
-
-        if suma == 0:
-            pesos_norm = {e:1/len(especialidades) for e in especialidades}
-        else:
-            pesos_norm = {k:v/suma for k,v in pesos_act.items()}
-
-        for esp in especialidades:
+        for esp, peso in pesos.items():
 
             nuevo = r.to_dict()
 
-            horas = r["duracion_h"] * pesos_norm[esp]
+            horas = round(r["duracion_h"] * peso, 2)
 
             nuevo["especialidad"] = esp
             nuevo["duracion_h"] = redondear_hora(horas)
@@ -1452,6 +1455,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
