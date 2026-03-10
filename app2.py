@@ -8,8 +8,6 @@ Instalación:
 Ejecución:
     streamlit run app_paro_planta.py
 =============================================================================
-"""
-
 import io
 import warnings
 from collections import defaultdict
