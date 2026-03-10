@@ -1168,9 +1168,9 @@ def main():
                 cs     = curva_s(cron, 51)
                 df_tecnicos = min_tecnicos(cron, horizonte=36, horas_turno=8)
                 df_tecnicos_ot  = tecnicos_por_ot(cron)
-                dividir = dividir_especialidades(cron)
-                matriz_tecnicos = optimizar_tecnicos_turnos(cron)
-                st.session_state.update({"cron": cron, "cs": cs, "tecnicos": df_tecnicos, "tecnicos_ot": df_tecnicos_ot, "dividir": dividir_ot, "matriz_tecnicos": matriz_tecnicos})
+                cron_div = dividir_especialidades(cron)
+                matriz_tecnicos = optimizar_tecnicos_turnos(cron_div)
+                st.session_state.update({"cron": cron, "cs": cs, "tecnicos": df_tecnicos, "tecnicos_ot": df_tecnicos_ot, "cron_div": cron_div, "matriz_tecnicos": matriz_tecnicos})
             except Exception as e:
                 st.error(f"❌ Error: {e}")
                 st.exception(e)
@@ -1181,6 +1181,7 @@ def main():
     cs   = st.session_state["cs"]
     df_tecnicos = st.session_state["tecnicos"]
     df_tecnicos_ot = st.session_state["tecnicos_ot"]
+    cron_div = st.session_state["cron_div"]
     matriz_tecnicos = st.session_state["matriz_tecnicos"]
  
     
@@ -1427,6 +1428,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
