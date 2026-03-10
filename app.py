@@ -375,6 +375,47 @@ def tecnicos_por_ot(df):
     return pd.DataFrame(rows)
 
 # ─────────────────────────────────────────────────────────
+# MÓDULO 3D-A – DIVISIÓN DE ESPECIALIDADES
+# ─────────────────────────────────────────────────────────
+
+def dividir_especialidades(cron):
+
+    import pandas as pd
+
+    PESOS = {
+        "MECÁNICA": 0.5,
+        "ELÉCTRICA": 0.3,
+        "INSTRUMENTACIÓN": 0.2
+    }
+
+    filas = []
+
+    for _, r in cron.iterrows():
+
+        especialidades = [e.strip() for e in str(r["especialidad"]).split(",")]
+
+        if len(especialidades) == 1:
+
+            filas.append(r.to_dict())
+
+        else:
+
+            for esp in especialidades:
+
+                nuevo = r.to_dict()
+
+                peso = PESOS.get(esp, 1/len(especialidades))
+
+                nuevo["especialidad"] = esp
+                nuevo["duracion_h"] = r["duracion_h"] * peso
+
+                filas.append(nuevo)
+
+    cron_nuevo = pd.DataFrame(filas)
+
+    return cron_nuevo 
+    
+# ─────────────────────────────────────────────────────────
 # MÓDULO 3D – OPTIMIZADOR DE TÉCNICOS (VERSIÓN FINAL)
 # ─────────────────────────────────────────────────────────
 
@@ -1128,8 +1169,9 @@ def main():
                 cs     = curva_s(cron, 51)
                 df_tecnicos = min_tecnicos(cron, horizonte=36, horas_turno=8)
                 df_tecnicos_ot  = tecnicos_por_ot(cron)
-                matriz_tecnicos = optimizar_tecnicos_turnos(cron)
-                st.session_state.update({"cron": cron, "cs": cs, "tecnicos": df_tecnicos, "tecnicos_ot": df_tecnicos_ot, "matriz_tecnicos": matriz_tecnicos})
+                cron = dividir_especialidades(cron)
+                matriz_tecnicos = optimizar_tecnicos_turnos(cron)          
+                st.session_state.update({"cron": cron, "cs": cs, "tecnicos": df_tecnicos, "tecnicos_ot": df_tecnicos_ot, "cron":cron, "matriz_tecnicos": matriz_tecnicos})
             except Exception as e:
                 st.error(f"❌ Error: {e}")
                 st.exception(e)
@@ -1140,6 +1182,7 @@ def main():
     cs   = st.session_state["cs"]
     df_tecnicos = st.session_state["tecnicos"]
     df_tecnicos_ot = st.session_state["tecnicos_ot"]
+    cron = st.session_state["cron"]
     matriz_tecnicos = st.session_state["matriz_tecnicos"]
  
     
@@ -1386,6 +1429,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
