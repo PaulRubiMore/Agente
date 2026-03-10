@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
+import math
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -269,9 +270,6 @@ def calcular_pesos(especialidades):
 # ─────────────────────────────────────────────────────────────────────────────
 def tecnicos_por_ot(df):
 
-    import numpy as np
-    import pandas as pd
-
     HORAS_TECNICO = 8
 
     def redondear_hora(valor):
@@ -328,8 +326,6 @@ def tecnicos_por_ot(df):
 
 def dividir_especialidades(cron):
 
-    import pandas as pd
-
     def redondear_hora(valor):
         entero = int(valor)
         decimal = valor - entero
@@ -373,9 +369,6 @@ def dividir_especialidades(cron):
 # ─────────────────────────────────────────────────────────
 
 def optimizar_tecnicos_turnos(cron, horizonte=36):
-
-    import pandas as pd
-    import math
 
     cron = cron.copy()
     cron["hh_restantes"] = cron["duracion_h"]
@@ -761,6 +754,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
