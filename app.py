@@ -373,7 +373,84 @@ def tecnicos_por_ot(df):
                 })
 
     return pd.DataFrame(rows)
+# ─────────────────────────────────────────────────────────────────────────────
+# MÓDULO 3D: PLANIFICADOR DE TÉCNICOS POR CENTRO
+# ─────────────────────────────────────────────────────────────────────────────
 
+def planificar_tecnicos_por_centro(cron, horizonte=36, horas_turno=8):
+
+    import pandas as pd
+    import numpy as np
+
+    PESOS = {
+        "MECÁNICA": 0.5,
+        "ELÉCTRICA": 0.3,
+        "INSTRUMENTACIÓN": 0.2
+    }
+
+    # lista de tecnicos
+    tecnicos = []
+
+    conteo = cron.groupby(["centro","especialidad"]).size().reset_index()
+
+    for _, r in conteo.iterrows():
+
+        centro = r["centro"]
+        esp    = r["especialidad"]
+
+        for i in range(3):  # base inicial de tecnicos
+
+            tecnicos.append({
+                "tecnico": f"{centro}_{esp}_T{i+1}",
+                "centro": centro,
+                "especialidad": esp,
+                "horas_trabajadas": 0
+            })
+
+    tecnicos = pd.DataFrame(tecnicos)
+
+    matriz = pd.DataFrame(
+        "",
+        index=tecnicos["tecnico"],
+        columns=list(range(horizonte))
+    )
+
+    cron = cron.copy()
+    cron["horas_restantes"] = cron["duracion_h"]
+
+    for h in range(horizonte):
+
+        for i, act in cron.iterrows():
+
+            if not (act["start_sd"] <= h < act["end_sd"]):
+                continue
+
+            if cron.loc[i,"horas_restantes"] <= 0:
+                continue
+
+            candidatos = tecnicos[
+                (tecnicos["centro"] == act["centro"]) &
+                (tecnicos["horas_trabajadas"] < horas_turno)
+            ]
+
+            if candidatos.empty:
+                continue
+
+            t = candidatos.iloc[0]
+            nombre = t["tecnico"]
+
+            if matriz.loc[nombre, h] == "":
+
+                matriz.loc[nombre, h] = act["orden"]
+
+                tecnicos.loc[
+                    tecnicos["tecnico"] == nombre,
+                    "horas_trabajadas"
+                ] += 1
+
+                cron.loc[i,"horas_restantes"] -= 1
+
+    return matriz
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MÓDULO 4: CURVA S
@@ -1048,7 +1125,8 @@ def main():
                 cs     = curva_s(cron, 51)
                 df_tecnicos = min_tecnicos(cron, horizonte=36, horas_turno=8)
                 df_tecnicos_ot  = tecnicos_por_ot(cron)
-                st.session_state.update({"cron": cron, "cs": cs, "tecnicos": df_tecnicos, "tecnicos_ot": df_tecnicos_ot})
+                matriz_tecnicos = planificar_tecnicos_por_centro(cron)
+                st.session_state.update({"cron": cron, "cs": cs, "tecnicos": df_tecnicos, "tecnicos_ot": df_tecnicos_ot, "matriz_tecnicos": matriz_tecnicos})
             except Exception as e:
                 st.error(f"❌ Error: {e}")
                 st.exception(e)
@@ -1059,6 +1137,7 @@ def main():
     cs   = st.session_state["cs"]
     df_tecnicos = st.session_state["tecnicos"]
     df_tecnicos_ot = st.session_state["tecnicos_ot"]
+    matriz_tecnicos = st.session_state["matriz_tecnicos"]
  
     
     # Mostrar tabla de técnicos mínimos
@@ -1067,6 +1146,10 @@ def main():
 
     st.subheader("👷 Técnicos requeridos por Orden de Trabajo")
     st.dataframe(df_tecnicos_ot)
+
+    st.subheader("📅 Planificación de técnicos por hora")
+    st.caption("Cada fila es un técnico. Cada columna es una hora SD (0-36).")
+    st.dataframe(matriz_tecnicos)
 
 
     # ── KPIs ──
@@ -1300,6 +1383,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
