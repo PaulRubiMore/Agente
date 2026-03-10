@@ -365,20 +365,18 @@ def dividir_especialidades(cron):
     return pd.DataFrame(filas)
     
 def optimizar_tecnicos_turnos(cron, horizonte=36):
-
     cron = cron.copy()
     cron["hh_restantes"] = cron["duracion_h"]
 
-    TURNOS = [(0,8),(8,16),(16,24),(24,32),(32,40)]  # ahora se consideran todos los turnos posibles
-    HORAS_TECNICO = 16
+    TURNOS_8H = [(0,8),(8,16),(16,24),(24,32),(32,40)]  # turnos de 8h
+    MAX_HORAS_TECNICO_X24H = 8  # cada técnico puede trabajar 8h cada 24h
 
     # calcular demanda por centro y especialidad
     demanda = cron.groupby(["centro","especialidad"])["hh_restantes"].sum().reset_index()
 
     tecnicos = []
-
     for _, r in demanda.iterrows():
-        n = math.ceil(r["hh_restantes"] / HORAS_TECNICO)
+        n = math.ceil(r["hh_restantes"] / MAX_HORAS_TECNICO_X24H)
         for i in range(n):
             tecnicos.append({
                 "tecnico": f"{r['centro']}_{r['especialidad']}_T{i+1}",
@@ -387,28 +385,22 @@ def optimizar_tecnicos_turnos(cron, horizonte=36):
             })
 
     tecnicos = pd.DataFrame(tecnicos)
+    matriz = pd.DataFrame("", index=tecnicos["tecnico"], columns=list(range(horizonte)))
 
-    matriz = pd.DataFrame(
-        "",
-        index=tecnicos["tecnico"],
-        columns=list(range(horizonte))
-    )
-
-    # recorrer técnicos
     for _, t in tecnicos.iterrows():
         centro = t["centro"]
         esp = t["especialidad"]
 
-        for inicio, fin in TURNOS:
-            h = inicio
+        horas_trabajadas_24h = defaultdict(int)  # para cada técnico, horas trabajadas en su ciclo de 24h
 
+        for inicio, fin in TURNOS_8H:
+            h = inicio
             while h < fin:
                 ots = cron[
                     (cron["centro"] == centro) &
                     (cron["especialidad"] == esp) &
                     (cron["hh_restantes"] > 0)
                 ]
-
                 if ots.empty:
                     break
 
@@ -416,16 +408,22 @@ def optimizar_tecnicos_turnos(cron, horizonte=36):
                 ot_idx = ot.name
                 orden = ot["orden"]
 
-                # asignar horas restantes de la OT al técnico, arrastrando al siguiente turno si es necesario
-                bloque = cron.loc[ot_idx, "hh_restantes"]
+                # calcular horas asignables respetando 8h cada 24h
+                dia_24h = (h // 24) * 24
+                h_disponibles = MAX_HORAS_TECNICO_X24H - horas_trabajadas_24h[dia_24h]
+                bloque = min(h_disponibles, cron.loc[ot_idx, "hh_restantes"], fin - h)
+
+                if bloque <= 0:
+                    break  # no puede asignar más en este turno
 
                 for i in range(bloque):
-                    if h >= horizonte:  # evitar pasar del horizonte
+                    if h >= horizonte:
                         break
                     matriz.loc[t["tecnico"], h] = orden
                     h += 1
 
                 cron.loc[ot_idx, "hh_restantes"] -= bloque
+                horas_trabajadas_24h[dia_24h] += bloque
 
     return matriz
 # ─────────────────────────────────────────────────────────────────────────────
