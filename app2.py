@@ -1,3 +1,4 @@
+"""
 =============================================================================
 APP STREAMLIT - SIMULACIÓN PARADA DE PLANTA SD18MAR26
 Visualizaciones 100% interactivas con Plotly (zoom, hover, filtros)
@@ -8,6 +9,8 @@ Instalación:
 Ejecución:
     streamlit run app_paro_planta.py
 =============================================================================
+"""
+
 import io
 import warnings
 from collections import defaultdict
