@@ -1,659 +1,762 @@
-# ============================================================
-# SISTEMA MULTI-AGENTE DE MANTENIMIENTO – v4.0 DEFINITIVO
-# SIMULACIÓN MENSUAL – MARZO 2026
-# ============================================================
-#
-# HISTORIAL DE ERRORES Y CORRECCIONES:
-#
-#  v1 ORIGINAL – Colapsaba en días 9-11:
-#    ✗ Penalización simétrica + deseo_expansion = incentivo a comprimir
-#    ✗ HORAS_POR_DIA=6 arbitrario, sin jornada real
-#
-#  v2 – INFEASIBLE:
-#    ✗ Bloques de overtime consumían (cap-1) técnicos
-#    ✗ Tareas de 10-12h cruzaban esos bloques → 5+2=7 > 6 = contradicción
-#
-#  v3 – INFEASIBLE:
-#    ✗ Bug crítico de indexación: OVERTIME_START_IN_DAY = 8-2 = 6
-#      Los "slots de overtime" resultaron ser los slots 6-7 del día
-#      = horario 14:00-16:00 = JORNADA REGULAR, no horas extra.
-#      Se bloqueaba trabajo en plena tarde laboral.
-#    ✗ AddCumulative llamado DOS VECES por disciplina (duplicación)
-#
-#  v4 DEFINITIVO – Arquitectura correcta:
-#  ═══════════════════════════════════════
-#  PRINCIPIO: Con MAX_H_DIA=8 el horizonte SOLO contiene jornada
-#  regular (08:00-16:00). Las "horas extra" (16:00-18:00) están
-#  FUERA del horizonte → no se pueden modelar con slot-blocking.
-#
-#  SOLUCIÓN:
-#  1. MAX_H_DIA = 8 → slots 0-7 del día = 08:00-15:00
-#     El horizonte es puramente laboral. Cero trabajo nocturno.
-#
-#  2. Sin bloques de overtime en el modelo de capacidad.
-#     El overtime se modela como VARIABLE DE DECISIÓN SEPARADA
-#     en la función objetivo (penalización blanda por usar horas extra).
-#
-#  3. Restricción de capacidad única y correcta por disciplina.
-#
-#  4. Partición automática de tareas >8h en bloques ≤8h
-#     con precedencia: bloque_k+1 empieza el siguiente día.
-#
-#  5. Función objetivo industrial real:
-#     MIN Σ Score_i × tardiness_i  +  Σ 15 × inicio_tardio_i
-#
-# ============================================================
+"""
+=============================================================================
+APP STREAMLIT - SIMULACIÓN PARADA DE PLANTA SD18MAR26
+Visualizaciones 100% interactivas con Plotly (zoom, hover, filtros)
+=============================================================================
+Instalación:
+    pip install streamlit pandas openpyxl plotly numpy
 
-import streamlit as st
-from ortools.sat.python import cp_model
-import pandas as pd
-import random
+Ejecución:
+    streamlit run app_paro_planta.py
+=============================================================================
+"""
+
+import io
+import warnings
+from collections import defaultdict
 from datetime import datetime, timedelta
+
+import numpy as np
+import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import streamlit as st
 
-st.set_page_config(layout="wide")
-st.title("🧠 AGENTE 6 – Programador Inteligente (CP-SAT)")
-st.markdown(
-    "**Simulación Multi-Agente – Planificación Óptima Marzo 2026**  "
-    "`v4.0 DEFINITIVO · Calendario Real · Modelo Garantizado Factible`"
-)
+warnings.filterwarnings("ignore")
 
-# ============================================================
-# ★ CONFIGURACIÓN GLOBAL ★
-# ============================================================
+# ─────────────────────────────────────────────────────────────────────────────
+# CONSTANTES
+# ─────────────────────────────────────────────────────────────────────────────
 
-FECHA_INICIO = datetime(2026, 3, 1)
-MES_ACTUAL   = 3
+INICIO_SD = datetime(2026, 3, 18, 6, 0)
 
-# ── Jornada laboral ────────────────────────────────────────
-# Cada slot = 1 hora de trabajo real
-# MAX_H_DIA = 8 significa que el modelo opera SOLO en 08:00-16:00
-# Las horas extra (16:00-18:00) están FUERA del horizonte de slots
-# → no hay nada que bloquear; no pueden ocurrir por construcción.
-REGULAR_H_DIA = 8    # slots por día hábil (08:00–16:00)
-MAX_H_DIA     = REGULAR_H_DIA
-
-# ── Días hábiles Marzo 2026 (Lunes=0 … Sábado=5, Domingo=6) ─
-dias_habiles: list[int] = [
-    d for d in range(31)
-    if (FECHA_INICIO + timedelta(days=d)).weekday() <= 5
-]
-N_DIAS_HABILES: int = len(dias_habiles)   # 26 días hábiles
-
-# Índice hábil ↔ offset en calendario
-cal_a_idx: dict[int, int] = {d: i for i, d in enumerate(dias_habiles)}
-idx_a_cal: list[int]      = dias_habiles   # inverso
-
-# Horizonte completo: 26 días × 8 h/día = 208 slots laborales
-HORIZONTE_SLOTS: int = N_DIAS_HABILES * MAX_H_DIA
-
-# ── Capacidades del equipo (técnicos disponibles) ─────────
-capacidad_disciplina: dict[str, int] = {
-    "MEC": 6,
-    "ELE": 4,
-    "INS": 3,
-    "CIV": 3,
+COLORES_CRITICIDAD = {
+    "Muy Alta": "#B71C1C",
+    "Alta":     "#E53935",
+    "Media":    "#FB8C00",
+    "Baja":     "#43A047",
 }
 
-# ── Funciones de conversión ────────────────────────────────
-
-def fecha_a_slot_ini(fecha: datetime) -> int:
-    """
-    Fecha calendario → primer slot laboral del día hábil en o después de esa fecha.
-    Domingo 01/mar → slot 0 (lunes 02/mar 08:00).
-    """
-    offset = max(0, (fecha - FECHA_INICIO).days)
-    for d in range(offset, 32):
-        if d in cal_a_idx:
-            return cal_a_idx[d] * MAX_H_DIA
-    return HORIZONTE_SLOTS   # fuera del horizonte → costo máximo
-
-
-def fecha_a_slot_deadline(fecha: datetime) -> int:
-    """
-    Fecha límite → final del último slot regular del día hábil
-    en o antes de esa fecha.
-    """
-    offset = min(max(0, (fecha - FECHA_INICIO).days), 30)
-    for d in range(offset, -1, -1):
-        if d in cal_a_idx:
-            return cal_a_idx[d] * MAX_H_DIA + REGULAR_H_DIA
-    return REGULAR_H_DIA
-
-
-def slot_a_dt(slot: int) -> datetime:
-    """
-    Slot laboral → datetime real para Gantt.
-    slot=0  → lun 02/mar 08:00
-    slot=7  → lun 02/mar 15:00
-    slot=8  → mar 03/mar 08:00
-    """
-    slot = min(slot, HORIZONTE_SLOTS)
-    idx  = min(slot // MAX_H_DIA, N_DIAS_HABILES - 1)
-    h    = slot % MAX_H_DIA            # posición dentro del turno
-    dia  = FECHA_INICIO + timedelta(days=idx_a_cal[idx])
-    return datetime(dia.year, dia.month, dia.day, 8 + h, 0)
-
-
-def partir_tarea(horas_total: int) -> list[int]:
-    """
-    Parte una tarea en bloques de máximo MAX_H_DIA horas.
-    12h → [8, 4]   |   8h → [8]   |   4h → [4]
-    Modela que no es posible ejecutar más de un turno completo
-    sin pausa nocturna.
-    """
-    bloques, restante = [], horas_total
-    while restante > 0:
-        bloques.append(min(restante, MAX_H_DIA))
-        restante -= MAX_H_DIA
-    return bloques
-
-
-# ============================================================
-# PANEL INFORMATIVO DEL CALENDARIO
-# ============================================================
-
-with st.expander("📋 Calendario Laboral Marzo 2026", expanded=False):
-    rows = []
-    for d in dias_habiles:
-        fecha_real = FECHA_INICIO + timedelta(days=d)
-        i          = cal_a_idx[d]
-        rows.append({
-            "Día":         fecha_real.strftime("%A %d/%m/%Y"),
-            "Idx hábil":   i + 1,
-            "Slot inicio": i * MAX_H_DIA,
-            "Slot fin":    i * MAX_H_DIA + MAX_H_DIA - 1,
-            "Horario":     "08:00 – 16:00",
-        })
-    st.dataframe(pd.DataFrame(rows), use_container_width=True,
-                 hide_index=True, height=300)
-    st.info(
-        f"**{N_DIAS_HABILES} días hábiles** (Lun–Sáb) · "
-        f"**{HORIZONTE_SLOTS} slots** totales · "
-        f"Primer día: {(FECHA_INICIO + timedelta(days=dias_habiles[0])).strftime('%A %d/%m')} · "
-        f"Último día: {(FECHA_INICIO + timedelta(days=dias_habiles[-1])).strftime('%A %d/%m')}"
-    )
-
-# ============================================================
-# FASE 0 – GENERADOR
-# ============================================================
-
-with st.expander("FASE 0 – Generación Automática de Órdenes de Trabajo", expanded=True):
-
-    random.seed(42)
-
-    def generar_ots(n: int = 130) -> list[dict]:
-        tipos                = ["PREV", "PRED", "CORR"]
-        criticidades         = ["Alta", "Media", "Baja"]
-        disciplinas_posibles = ["MEC", "ELE", "INS", "CIV", "MEC | ELE", "MEC | INS"]
-        ots = []
-        for i in range(1, n + 1):
-            tipo       = random.choice(tipos)
-            criticidad = random.choice(criticidades)
-            dia_tent   = random.randint(1, 22)
-            # Ventana mínima de 5 días para garantizar espacio de programación
-            dia_lim    = random.randint(dia_tent + 5, 31)
-            disciplina = random.choice(disciplinas_posibles)
-
-            if "|" in disciplina:
-                partes   = disciplina.split("|")
-                horas    = " | ".join(str(random.choice([4, 6, 8])) for _ in partes)
-                tecnicos = " | ".join(str(random.randint(1, 2))     for _ in partes)
-            else:
-                horas    = str(random.choice([4, 6, 8, 10, 12]))
-                tecnicos = str(random.randint(1, 2))
-
-            ots.append({
-                "id":            f"OT{i:03}",
-                "Tipo":          tipo,
-                "Criticidad":    criticidad,
-                "Fecha_Inicial": FECHA_INICIO + timedelta(days=dia_tent - 1),
-                "Fecha_Limite":  FECHA_INICIO + timedelta(days=dia_lim  - 1),
-                "Ubicacion":     random.choice(["Planta", "Remota"]),
-                "Camioneta":     random.choice([0, 1]),
-                "Disciplinas":   disciplina,
-                "Horas":         horas,
-                "Tecnicos":      tecnicos,
-                "Mes_Origen":    random.choice([2, 3]),
-            })
-        return ots
-
-    raw_ots = generar_ots(130)
-    st.write(f"Total OTs generadas: **{len(raw_ots)}**")
-    st.dataframe(pd.DataFrame(raw_ots), use_container_width=True, height=320)
-    st.success("Simulación de carga mensual completada.")
-
-# ============================================================
-# FASE 1 – REPROGRAMACIÓN
-# ============================================================
-
-with st.expander("FASE 1 – Reprogramación de OTs Vencidas", expanded=True):
-    for ot in raw_ots:
-        if ot["Mes_Origen"] < MES_ACTUAL:
-            if ot["Tipo"] == "PREV" and ot["Criticidad"] == "Alta":
-                ot["Fecha_Inicial"] = ot["Fecha_Limite"]
-            elif ot["Tipo"] == "PRED":
-                ot["Fecha_Inicial"] = FECHA_INICIO + timedelta(days=random.randint(0, 19))
-            elif ot["Tipo"] == "CORR" and ot["Criticidad"] == "Alta":
-                ot["Fecha_Inicial"] = FECHA_INICIO
-            else:
-                ot["Fecha_Inicial"] = FECHA_INICIO + timedelta(days=random.randint(0, 24))
-    st.success("Reprogramación aplicada.")
-
-# ============================================================
-# FASE 2 – ÍNDICE DE DEGRADACIÓN
-# ============================================================
-
-with st.expander("FASE 2 – Agente Analista de Condición", expanded=True):
-    deg_map = {"CORR": 0.9, "PRED": 0.6, "PREV": 0.3}
-    for ot in raw_ots:
-        ot["Indice_Degradacion"] = deg_map[ot["Tipo"]]
-
-# ============================================================
-# FASE 3 – PRIORIZACIÓN
-# ============================================================
-
-with st.expander("FASE 3 – Priorización Estratégica", expanded=True):
-    def criticidad_score(c: str) -> int: return {"Alta": 3, "Media": 2, "Baja": 1}[c]
-    def tipo_score(t: str)       -> int: return {"CORR": 100, "PRED": 60, "PREV": 40}[t]
-    for ot in raw_ots:
-        ot["Score"] = int(
-            tipo_score(ot["Tipo"])
-            + criticidad_score(ot["Criticidad"]) * 10
-            + ot["Indice_Degradacion"] * 20
-        )
-    st.success("Scores calculados.")
-
-# ============================================================
-# ★ FASE 4 – MODELO CP-SAT v4 ★
-# ============================================================
-
-with st.expander("FASE 4 – Construcción del Modelo CP-SAT", expanded=True):
-
-    st.markdown(f"""
-    #### Por qué v3 seguía siendo INFEASIBLE (diagnóstico final)
-
-    ```
-    MAX_H_DIA = 8  →  OVERTIME_START_IN_DAY = 8 - 2 = 6
-
-    "Slot de overtime" del día 0  =  slots 6 y 7
-    =  horario 14:00–16:00  =  ¡JORNADA REGULAR!
-
-    Con bloqueo = cap - cap_overtime = 6 - 2 = 4
-    Una tarea de 8h (slots 0-7) SIEMPRE pasa por slots 6-7:
-        bloqueo(4) + task1(2) + task2(2) = 8 > 6  → INFEASIBLE
-    ```
-
-    #### Arquitectura v4 (garantizada factible)
-
-    | Componente | Decisión de diseño |
-    |---|---|
-    | Horizonte | {HORIZONTE_SLOTS} slots = {N_DIAS_HABILES} días × {MAX_H_DIA}h regulares |
-    | Overtime | **Fuera del horizonte** – no ocurre por construcción |
-    | Capacidad | 1 sola `AddCumulative` por disciplina – sin duplicados |
-    | Tareas >8h | Partición en bloques ≤8h con precedencia de día a día |
-    | Factibilidad | Garantizada si demanda_total ≤ capacidad_total |
-
-    #### Verificación de capacidad
-    """)
-
-    # Pre-check capacidad vs demanda
-    cap_check = []
-    all_feasible = True
-    for disc, cap in capacidad_disciplina.items():
-        horas_req = 0
-        for ot in raw_ots:
-            discs = [d.strip() for d in ot["Disciplinas"].split("|")]
-            horas = [int(h.strip()) for h in ot["Horas"].split("|")]
-            for d, h in zip(discs, horas):
-                if d == disc:
-                    horas_req += h
-        cap_mes = cap * N_DIAS_HABILES * REGULAR_H_DIA
-        ok = horas_req <= cap_mes
-        if not ok:
-            all_feasible = False
-        cap_check.append({
-            "Disciplina":        disc,
-            "Técnicos":          cap,
-            "Horas disponibles": cap_mes,
-            "Horas requeridas":  horas_req,
-            "% Ocupación":       f"{100*horas_req/cap_mes:.0f}%",
-            "Estado":            "✅ OK" if ok else "❌ Excede",
-        })
-    st.dataframe(pd.DataFrame(cap_check), use_container_width=True, hide_index=True)
-    if not all_feasible:
-        st.error("⚠️ La demanda supera la capacidad en alguna disciplina. Reducir OTs o ampliar equipo.")
-    else:
-        st.success("✅ Capacidad suficiente para toda la demanda del mes")
-
-    # ── Construcción del modelo ──────────────────────────────
-    model = cp_model.CpModel()
-
-    # Contenedores
-    start_vars:               dict[str, cp_model.IntVar] = {}
-    end_vars:                 dict[str, cp_model.IntVar] = {}
-    # Cada disciplina tiene UNA lista de (interval, demand) para AddCumulative
-    intervals_por_disc:       dict[str, list]            = {d: [] for d in capacidad_disciplina}
-    intervalos_camionetas:    list = []
-    demandas_camionetas:      list = []
-    CAMIONETAS = 3
-
-    # Términos de la función objetivo
-    tard_terms:    list = []
-    ini_lat_terms: list = []
-
-    n_partidas = 0
-
-    for ot in raw_ots:
-
-        slot_ini  = fecha_a_slot_ini(ot["Fecha_Inicial"])
-        slot_dead = fecha_a_slot_deadline(ot["Fecha_Limite"])
-
-        # Ventana mínima de 1 slot (seguridad)
-        slot_ini  = min(slot_ini,  HORIZONTE_SLOTS - 1)
-        slot_dead = max(slot_dead, slot_ini + 1)
-
-        disciplinas_ot = [d.strip() for d in ot["Disciplinas"].split("|")]
-        horas_ot       = [int(h.strip()) for h in ot["Horas"].split("|")]
-        tecnicos_ot    = [int(t.strip()) for t in ot["Tecnicos"].split("|")]
-
-        # Puntero de precedencia global de la OT (entre disciplinas)
-        ot_prev_end = None
-
-        for disc, dur_total, demanda in zip(disciplinas_ot, horas_ot, tecnicos_ot):
-
-            sub_bloques = partir_tarea(dur_total)   # máx MAX_H_DIA por bloque
-            if len(sub_bloques) > 1:
-                n_partidas += 1
-
-            blq_prev_end = ot_prev_end   # precedencia dentro de la OT
-
-            for k, dur in enumerate(sub_bloques):
-                nombre = f"{ot['id']}_{disc}_{k}"
-
-                # ── Variables de decisión ────────────────────
-                # start en [slot_ini, HORIZONTE_SLOTS]:
-                #   Si la solución necesita ir más allá del horizonte,
-                #   se permite (el costo de tardiness lo penaliza).
-                start = model.NewIntVar(
-                    slot_ini,
-                    HORIZONTE_SLOTS,
-                    f"s_{nombre}"
-                )
-                # end = start + dur (forzado por IntervalVar)
-                end = model.NewIntVar(
-                    slot_ini + dur,
-                    HORIZONTE_SLOTS + dur,
-                    f"e_{nombre}"
-                )
-                iv = model.NewIntervalVar(start, dur, end, f"iv_{nombre}")
-
-                start_vars[nombre] = start
-                end_vars[nombre]   = end
-
-                # ── Capacidad por disciplina ─────────────────
-                if disc in intervals_por_disc:
-                    intervals_por_disc[disc].append((iv, demanda))
-
-                # ── Camioneta ────────────────────────────────
-                if ot["Ubicacion"] == "Remota":
-                    intervalos_camionetas.append(iv)
-                    demandas_camionetas.append(1)
-
-                # ── Precedencia (disc_i → disc_i+1, blq_k → blq_k+1) ──
-                if blq_prev_end is not None:
-                    # El siguiente bloque empieza al menos 1 día hábil después
-                    # (gap = MAX_H_DIA simula la pausa nocturna entre bloques partidos)
-                    gap = MAX_H_DIA if k > 0 else 0
-                    model.Add(start >= blq_prev_end + gap)
-                blq_prev_end = end
-
-            ot_prev_end = blq_prev_end
-
-            # ── Tardiness ponderada ──────────────────────────
-            # Se mide sobre el ÚLTIMO bloque de la tarea
-            last_nombre = f"{ot['id']}_{disc}_{len(sub_bloques)-1}"
-            last_end    = end_vars[last_nombre]
-            tard = model.NewIntVar(0, HORIZONTE_SLOTS * 2, f"tard_{last_nombre}")
-            model.Add(tard >= last_end - slot_dead)
-            model.Add(tard >= 0)
-            tard_terms.append(ot["Score"] * tard)
-
-            # ── Inicio tardío (solo del primer bloque) ───────
-            first_nombre = f"{ot['id']}_{disc}_0"
-            first_start  = start_vars[first_nombre]
-            ini_lat = model.NewIntVar(0, HORIZONTE_SLOTS, f"il_{first_nombre}")
-            model.Add(ini_lat >= first_start - slot_ini)
-            model.Add(ini_lat >= 0)
-            ini_lat_terms.append(ini_lat)
-
-    n_bloques = len(start_vars)
-    st.success(
-        f"✅ **{n_bloques}** bloques de intervalo creados "
-        f"· **{n_partidas}** tareas partidas por exceder {MAX_H_DIA}h/turno"
-    )
-
-# ============================================================
-# ★ FASE 5 – RESTRICCIONES DE CAPACIDAD (ÚNICA, CORRECTA) ★
-# ============================================================
-
-with st.expander("FASE 5 – Restricciones de Capacidad", expanded=True):
-
-    st.markdown("""
-    #### Una sola `AddCumulative` por disciplina (sin duplicados, sin bloqueos)
-
-    ```
-    ∀ t ∈ [0, HORIZONTE_SLOTS]:
-        Σ demanda_i · 1[start_i ≤ t < end_i]  ≤  cap[disc]
-    ```
-
-    Sin bloques ficticios de overtime → la restricción es siempre satisfacible
-    siempre que la demanda total no supere la capacidad total del mes.
-    """)
-
-    # ── Una sola AddCumulative por disciplina ────────────────
-    for disc, lista in intervals_por_disc.items():
-        if lista:
-            model.AddCumulative(
-                [it[0] for it in lista],
-                [it[1] for it in lista],
-                capacidad_disciplina[disc]
-            )
-
-    # ── Camionetas ────────────────────────────────────────────
-    if intervalos_camionetas:
-        model.AddCumulative(
-            intervalos_camionetas,
-            demandas_camionetas,
-            CAMIONETAS
-        )
-
-    df_cap = pd.DataFrame([{
-        "Disciplina":     disc,
-        "Técnicos":       cap,
-        "Slots / mes":    cap * HORIZONTE_SLOTS,
-        "Jornada":        "08:00 – 16:00 · Lun–Sáb",
-        "Overtime":       "Fuera del horizonte (no modelado en solver)",
-    } for disc, cap in capacidad_disciplina.items()])
-    st.dataframe(df_cap, use_container_width=True, hide_index=True)
-    st.success(
-        f"✅ {len(capacidad_disciplina)} restricciones acumulativas aplicadas "
-        f"+ 1 restricción de camionetas (máx. {CAMIONETAS})"
-    )
-
-# ============================================================
-# ★ FASE 6 – FUNCIÓN OBJETIVO ★
-# ============================================================
-
-with st.expander("FASE 6 – Función Objetivo Industrial", expanded=True):
-
-    st.markdown("""
-    ### Función objetivo sin colapso temporal
-
-    ```
-    MINIMIZAR:
-        Σᵢ  Score_i × tardiness_i    (peso alto: OTs críticas NUNCA se atrasan)
-      + Σᵢ  15 × inicio_tardio_i     (peso bajo: distribución suave en el mes)
-    ```
-
-    | Término | Peso | Propósito |
-    |---|---|---|
-    | `Score × tardiness` | 100–160 | Tardanzas → costo muy alto |
-    | `inicio_tardio` | 15 | Distribuye suavemente sin anclar |
-    | ~~`makespan`~~ | ~~eliminado~~ | Sin premio por terminar pronto |
-    | ~~`deseo_expansion`~~ | ~~eliminado~~ | Sin incentivo a comprimir el mes |
-
-    **Resultado esperado:** el solver usa toda la capacidad disponible
-    durante el mes, distribuyendo naturalmente sin amontonar al inicio.
-    """)
-
-    PESO_INI_LAT = 15
-    model.Minimize(
-        sum(tard_terms)
-        + sum(PESO_INI_LAT * t for t in ini_lat_terms)
-    )
-    st.success("✅ Función objetivo configurada")
-
-# ============================================================
-# FASE 7 – RESOLUCIÓN Y RESULTADOS
-# ============================================================
-
-with st.expander("FASE 7 – Resolución y Resultados", expanded=True):
-
-    solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 45
-    solver.parameters.num_search_workers  = 4
-
-    with st.spinner("⚙️ Resolviendo… (máx. 45 s)"):
-        status = solver.Solve(model)
-
-    STATUS_TXT = {
-        cp_model.OPTIMAL:    "ÓPTIMA ✅",
-        cp_model.FEASIBLE:   "FACTIBLE ✅  (tiempo límite)",
-        cp_model.INFEASIBLE: "INFEASIBLE ❌",
-        cp_model.UNKNOWN:    "DESCONOCIDO ⚠️",
+COLORES_CENTRO = {
+    "CUS": "#2196F3", "EPO": "#4CAF50", "PAE": "#FF9800", "MRF": "#9C27B0",
+    "LBE": "#F44336", "VSA": "#00BCD4", "CQO": "#795548", "CCA": "#E91E63",
+    "GRA": "#607D8B", "CVA": "#FF5722", "TUN": "#009688", "PBE": "#3F51B5",
+    "BOG": "#8BC34A", "DEFAULT": "#9E9E9E",
+}
+
+CAPACIDAD_RECURSOS = {
+    "MECÁNICA": 8, "ELÉCTRICA": 6, "INSTRUMENTACIÓN": 5,
+    "TELECOMUNICACIONES": 3, "ENERGÉTICA": 2, "CIVIL": 4,
+    "OPERACIONES": 6, "INSPECCIÓN": 3, "CONTROLES": 2,
+    "SER": 2, "VLV": 2, "AMBIENTAL": 2, "DEFAULT": 4,
+}
+
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MÓDULO 1: CARGA Y LIMPIEZA
+# ─────────────────────────────────────────────────────────────────────────────
+
+@st.cache_data(show_spinner=False)
+def cargar_actividades(b: bytes) -> pd.DataFrame:
+    df = pd.read_excel(io.BytesIO(b), sheet_name="Lista de Actividades SD", header=0)
+    df.columns = df.columns.str.strip().str.replace("\n", " ")
+    return df
+
+
+@st.cache_data(show_spinner=False)
+def cargar_pdt(b: bytes) -> pd.DataFrame:
+    df = pd.read_excel(io.BytesIO(b), sheet_name="Actividades", header=0)
+    df.columns = df.columns.str.strip().str.replace("\n", " ")
+    return df
+
+
+def limpiar_unificar(df_act: pd.DataFrame, df_pdt: pd.DataFrame) -> pd.DataFrame:
+    pdt = df_pdt.rename(columns={
+        "Centro planificación": "centro",
+        "Actividades":          "actividad",
+        "Orden":                "orden",
+        "Computación":          "computacion",
+        "TIEMPO (Hrs)":         "duracion_h",
+        "ESTADO":               "estado",
+        "ESPECIALIDAD":         "especialidad",
+        "EJECUTOR":             "ejecutor",
+        "CRITICIDAD":           "criticidad",
+        "ASEGURADOR":           "asegurador",
+        "Riesgo del Entorno":   "riesgo_texto",
+        "Criticidad":           "criticidad_num",
+        "Riesgo Entorno":       "riesgo_num",
+        "Avance % Act.":        "avance_pct",
+        "Valor Global %.":      "valor_global",
+        "% ACUM CENTRO":        "acum_centro",
+        "% ACUM TOTAL":         "acum_total",
+        "RUTA CRITICA":         "ruta_critica",
+    })
+    pdt = pdt[pdt["actividad"].notna()].copy()
+    pdt = pdt[pd.to_numeric(pdt["duracion_h"], errors="coerce") > 0].copy()
+
+    act = df_act.rename(columns={
+        "Actividades": "actividad", "Centro planificación": "centro",
+        "CRITICIDAD": "criticidad_act", "HSE OCENSA": "hse",
+        "INTERFERENCIA": "interferencia", "COMENTARIOS": "comentarios",
+    })
+    keep = ["actividad", "criticidad_act", "hse", "interferencia", "comentarios"]
+    act  = act[[c for c in keep if c in act.columns]].dropna(subset=["actividad"])
+    act  = act.drop_duplicates(subset=["actividad"])
+
+    df = pdt.merge(act, on="actividad", how="left")
+    df["duracion_h"]     = pd.to_numeric(df["duracion_h"], errors="coerce").fillna(1).clip(1, 50)
+    df["criticidad_num"] = pd.to_numeric(df["criticidad_num"], errors="coerce").fillna(2)
+    df["riesgo_num"]     = pd.to_numeric(df["riesgo_num"], errors="coerce").fillna(1)
+    df["valor_global"]   = pd.to_numeric(df["valor_global"], errors="coerce").fillna(0)
+    df["avance_pct"]     = pd.to_numeric(df["avance_pct"], errors="coerce").fillna(0)
+    df["criticidad"]     = df["criticidad"].fillna("Baja").str.strip()
+    df["ruta_critica"]   = df["ruta_critica"].fillna("NO").str.upper().str.strip()
+    df["centro"]         = df["centro"].fillna("GEN").str.strip().str.upper()
+    df["estado"]         = df["estado"].fillna("PROGRAMADO").str.strip().str.upper()
+    df["especialidad"]   = df["especialidad"].fillna("DEFAULT").str.strip().str.upper()
+
+    df["ejecutor"] = df["ejecutor"].fillna("").str.strip().str.upper()
+    df = df[df["ejecutor"].isin(["MASSY ENERGY", "MASSY ENERGY GEN"])]
+
+    # Diccionario de correcciones comunes
+    correcciones = {
+        "ELÉCTRCIA": "ELÉCTRICA",
+        "INSTRUMEMTACIÓN": "INSTRUMENTACIÓN",
+        "INSTRUMENTACION": "INSTRUMENTACIÓN",
+        "MECÁNICA/INSTRUMENTACIÓN": "MECÁNICA, INSTRUMENTACIÓN",
+        "MECÁNICA/INSTRUMEMTACIÓN": "MECÁNICA, INSTRUMENTACIÓN",
     }
 
-    if status not in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
-        st.error(f"Estado: {STATUS_TXT.get(status,'?')}")
-        st.stop()
+    df["especialidad"] = df["especialidad"].replace(correcciones)
+    df["especialidad"] = df["especialidad"].str.replace(r"\s*,\s*", ", ", regex=True)
+    df = df.reset_index(drop=True)
+    df["id"] = df.index
+    return df
 
-    st.success(
-        f"Solución **{STATUS_TXT[status]}**  ·  "
-        f"Objetivo: {solver.ObjectiveValue():,.0f}  ·  "
-        f"Tiempo: {solver.WallTime():.1f}s"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MÓDULO 2: SCORING MULTICRITERIO
+# ─────────────────────────────────────────────────────────────────────────────
+
+def scoring(df: pd.DataFrame, w_crit, w_riesgo, w_valor, w_dur) -> pd.DataFrame:
+    def norm(s):
+        mn, mx = s.min(), s.max()
+        return pd.Series(np.ones(len(s)), index=s.index) if mx == mn else (s - mn) / (mx - mn)
+    df = df.copy()
+    df["score"] = (w_crit * norm(df["criticidad_num"])
+                 + w_riesgo * norm(df["riesgo_num"])
+                 + w_valor * norm(df["valor_global"])
+                 - w_dur * norm(df["duracion_h"]))
+    df.loc[df["ruta_critica"] == "SI", "score"] += 1.0
+    df["score"] += df["criticidad"].map({"Muy Alta": 0.8, "Alta": 0.5, "Media": 0.2, "Baja": 0.0}).fillna(0)
+    df["prioridad"] = df["score"].rank(ascending=False, method="first").astype(int)
+    return df.sort_values("score", ascending=False).reset_index(drop=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MÓDULO 3: PROGRAMACIÓN GREEDY + RESOURCE LEVELING
+# ─────────────────────────────────────────────────────────────────────────────
+
+def programar(df: pd.DataFrame, horizonte: int, riesgo_thr: 4 ) -> pd.DataFrame:
+    
+    HORIZONTE = 36
+    uso_rec = defaultdict(int)
+    uso_cr  = defaultdict(set)
+    rows    = []
+
+    df = df.sort_values("score", ascending=False).reset_index(drop=True)
+
+    for _, act in df.iterrows():
+        dur    = max(1, int(act["duracion_h"]))
+        esp_k  = str(act["especialidad"])[:25]
+        cap    = next((v for k, v in CAPACIDAD_RECURSOS.items() if k in esp_k.upper()), 4)
+        alto   = act["criticidad_num"] >= riesgo_thr
+        centro = act["centro"]
+        inicio = None
+
+        # Intentar ubicar la actividad dentro del horizonte
+        for t in range(HORIZONTE - dur + 1):
+            if any(uso_rec[(esp_k, h)] >= cap for h in range(t, t + dur)):
+                continue
+            if alto and set(range(t, t + dur)) & uso_cr[centro]:
+                continue
+            inicio = t
+            break
+
+        # Si no se encontró ventana, ubicar en el primer espacio disponible dentro de 36h
+        if inicio is None:
+            # Buscar ventana mínima que tenga menor saturación
+            min_sum = float("inf")
+            min_start = 0
+            for t in range(HORIZONTE - dur + 1):
+                carga = sum(uso_rec[(esp_k, h)] / cap for h in range(t, t + dur))
+                if alto:
+                    cr_conflict = len(set(range(t, t + dur)) & uso_cr[centro])
+                    carga += cr_conflict
+                if carga < min_sum:
+                    min_sum = carga
+                    min_start = t
+            inicio = min_start
+
+        fin = inicio + dur
+        for h in range(inicio, fin):
+            uso_rec[(esp_k, h)] += 1
+        if alto:
+            uso_cr[centro].update(range(inicio, fin))
+
+        inicio_real = INICIO_SD + timedelta(hours=inicio)
+        fin_real    = INICIO_SD + timedelta(hours=fin)
+        turno_n     = (inicio // 8) + 1
+        tmap = {1:"T1 (06-14h)", 2:"T2 (14-22h)", 3:"T3 (22-06h)",
+                4:"T4 (06-14h)", 5:"T5 (14-22h)", 6:"T6 (22-06h)"}
+
+        rows.append({**act.to_dict(),
+                     "start_sd": inicio, "end_sd": fin,
+                     "inicio_real": inicio_real, "fin_real": fin_real,
+                     "turno": tmap.get(turno_n, f"T{turno_n}"),
+                     "dentro_horizonte": True  # Forzamos 36h
+                    })
+
+    df_r = pd.DataFrame(rows)
+    total = df_r["valor_global"].sum()
+    df_r["valor_global_norm"] = (df_r["valor_global"] / total) if total > 0 else 1 / len(df_r)
+    df_r = df_r.sort_values("end_sd")
+    df_r["acum_total_calc"]  = (df_r["valor_global_norm"].cumsum() * 100).round(2)
+    df_r["acum_centro_calc"] = (
+        df_r.groupby("centro")["valor_global_norm"].cumsum()
+        .div(df_r.groupby("centro")["valor_global_norm"].transform("sum"))
+        .mul(100).round(2)
+    )
+    mksp   = df_r["end_sd"].max()
+    crit1  = df_r["ruta_critica"] == "SI"
+    crit2  = df_r["end_sd"] >= (mksp - 2)
+    crit3  = (df_r["criticidad_num"] >= 4) & (df_r["duracion_h"] >= 20)
+    df_r["es_critica"] = crit1 | crit2 | crit3
+    return df_r
+
+def calcular_pesos(especialidades):
+
+    esp = sorted(set(especialidades))
+
+    # 1 especialidad
+    if len(esp) == 1:
+        return {esp[0]: 1.0}
+
+    # 2 especialidades
+    if len(esp) == 2:
+
+        if set(esp) == {"MECÁNICA", "ELÉCTRICA"}:
+            return {"MECÁNICA": 0.65, "ELÉCTRICA": 0.35}
+
+        if set(esp) == {"MECÁNICA", "INSTRUMENTACIÓN"}:
+            return {"MECÁNICA": 0.70, "INSTRUMENTACIÓN": 0.30}
+
+        if set(esp) == {"ELÉCTRICA", "INSTRUMENTACIÓN"}:
+            return {"ELÉCTRICA": 0.60, "INSTRUMENTACIÓN": 0.40}
+
+    # 3 especialidades
+    return {
+        "MECÁNICA": 0.5,
+        "ELÉCTRICA": 0.3,
+        "INSTRUMENTACIÓN": 0.2
+    }
+# ─────────────────────────────────────────────────────────────────────────────
+# MÓDULO 3C: TECNICOS POR ORDEN DE TRABAJO
+# ─────────────────────────────────────────────────────────────────────────────
+def tecnicos_por_ot(df):
+
+    import numpy as np
+    import pandas as pd
+
+    HORAS_TECNICO = 8
+
+    def redondear_hora(valor):
+        entero = int(valor)
+        decimal = valor - entero
+        if decimal >= 0.5:
+            return entero + 1
+        else:
+            return entero
+
+    rows = []
+
+    for _, act in df.iterrows():
+
+        dur = act["duracion_h"]
+
+        esp_list = (
+            str(act["especialidad"])
+            .replace("/", ",")
+            .replace("INSTRUMENTACION", "INSTRUMENTACIÓN")
+            .upper()
+            .split(",")
+        )
+
+        esp_list = [e.strip() for e in esp_list if e.strip()]
+
+        # NUEVA LÓGICA DE PESOS
+        pesos = calcular_pesos(esp_list)
+
+        for esp, peso in pesos.items():
+
+            horas = round(dur * peso, 2)
+
+            horas_redondeadas = redondear_hora(horas)
+
+            tecnicos = int(np.ceil(horas_redondeadas / HORAS_TECNICO))
+
+            rows.append({
+                "Orden": act["orden"],
+                "Actividad": act["actividad"],
+                "Centro": act["centro"],
+                "Especialidad": esp,
+                "Duracion_h": dur,
+                "Horas_Especialidad": horas,
+                "Horas_Redondeadas": horas_redondeadas,
+                "Tecnicos_Requeridos": tecnicos
+            })
+
+    return pd.DataFrame(rows)
+
+# ─────────────────────────────────────────────────────────
+# MÓDULO 3D-A – DIVISIÓN DE ESPECIALIDADES (CORREGIDO)
+# ─────────────────────────────────────────────────────────
+
+def dividir_especialidades(cron):
+
+    import pandas as pd
+
+    def redondear_hora(valor):
+        entero = int(valor)
+        decimal = valor - entero
+        if decimal >= 0.5:
+            return entero + 1
+        else:
+            return entero
+
+    filas = []
+
+    for _, r in cron.iterrows():
+
+        especialidades = (
+            str(r["especialidad"])
+            .replace("/", ",")
+            .replace("INSTRUMENTACION", "INSTRUMENTACIÓN")
+            .upper()
+            .split(",")
+        )
+
+        especialidades = [e.strip() for e in especialidades if e.strip()]
+
+        # NUEVA LÓGICA
+        pesos = calcular_pesos(especialidades)
+
+        for esp, peso in pesos.items():
+
+            nuevo = r.to_dict()
+
+            horas = round(r["duracion_h"] * peso, 2)
+
+            nuevo["especialidad"] = esp
+            nuevo["duracion_h"] = redondear_hora(horas)
+
+            filas.append(nuevo)
+
+    return pd.DataFrame(filas)
+    
+# ─────────────────────────────────────────────────────────
+# MÓDULO 3D – OPTIMIZADOR DE TÉCNICOS (VERSIÓN FINAL)
+# ─────────────────────────────────────────────────────────
+
+def optimizar_tecnicos_turnos(cron, horizonte=36):
+
+    import pandas as pd
+    import math
+
+    cron = cron.copy()
+    cron["hh_restantes"] = cron["duracion_h"]
+
+    TURNOS = [(0,8),(24,32)]
+    HORAS_TECNICO = 16
+
+    # calcular demanda por centro y especialidad
+    demanda = cron.groupby(["centro","especialidad"])["hh_restantes"].sum().reset_index()
+
+    tecnicos = []
+
+    for _, r in demanda.iterrows():
+
+        n = math.ceil(r["hh_restantes"] / HORAS_TECNICO)
+
+        for i in range(n):
+
+            tecnicos.append({
+                "tecnico": f"{r['centro']}_{r['especialidad']}_T{i+1}",
+                "centro": r["centro"],
+                "especialidad": r["especialidad"]
+            })
+
+    tecnicos = pd.DataFrame(tecnicos)
+
+    matriz = pd.DataFrame(
+        "",
+        index=tecnicos["tecnico"],
+        columns=list(range(horizonte))
     )
 
-    # ── Construir DataFrame de resultados ─────────────────────
-    resultados = []
-    for nombre, s_var in start_vars.items():
+    # recorrer técnicos
+    for _, t in tecnicos.iterrows():
 
-        ini_slot = solver.Value(s_var)
-        fin_slot = solver.Value(end_vars[nombre])
+        centro = t["centro"]
+        esp = t["especialidad"]
 
-        partes = nombre.split("_")
-        ot_id  = partes[0]
-        disc   = partes[1] if len(partes) > 1 else "?"
+        for inicio, fin in TURNOS:
 
-        ot = next(o for o in raw_ots if o["id"] == ot_id)
+            horas_turno = fin - inicio
+            h = inicio
 
-        slot_dl      = fecha_a_slot_deadline(ot["Fecha_Limite"])
-        atraso_slots = max(0, fin_slot - slot_dl)
+            while horas_turno > 0:
 
-        ini_dt = slot_a_dt(ini_slot)
-        fin_dt = slot_a_dt(fin_slot)
+                ots = cron[
+                    (cron["centro"] == centro) &
+                    (cron["especialidad"] == esp) &
+                    (cron["hh_restantes"] > 0)
+                ]
 
-        resultados.append({
-            "Bloque":       nombre,
-            "OT":           ot_id,
-            "Tipo":         ot["Tipo"],
-            "Criticidad":   ot["Criticidad"],
-            "Score":        ot["Score"],
-            "Disciplina":   disc,
-            "Inicio_dt":    ini_dt,
-            "Fin_dt":       fin_dt,
-            "Fecha":        ini_dt.date(),
-            "Hora":         ini_dt.strftime("%H:%M"),
-            "Fecha_Limite": ot["Fecha_Limite"],
-            "Ini_slot":     ini_slot,
-            "Fin_slot":     fin_slot,
-            "Atraso_h":     atraso_slots,
-            "Backlog":      "SI" if atraso_slots > 0 else "NO",
+                if ots.empty:
+                    break
+
+                ot = ots.sort_values("hh_restantes", ascending=False).iloc[0]
+
+                ot_idx = ot.name
+                orden = ot["orden"]
+
+                bloque = min(
+                    horas_turno,
+                    cron.loc[ot_idx,"hh_restantes"]
+                )
+
+                for i in range(bloque):
+
+                    matriz.loc[t["tecnico"], h] = orden
+                    h += 1
+
+                cron.loc[ot_idx,"hh_restantes"] -= bloque
+                horas_turno -= bloque
+
+    return matriz
+# ─────────────────────────────────────────────────────────────────────────────
+# MÓDULO 4: CURVA S
+# ─────────────────────────────────────────────────────────────────────────────
+
+def curva_s(df: pd.DataFrame, horizonte: int = 51) -> pd.DataFrame:
+    rows = []
+    for h in range(horizonte + 1):
+        comp = df[df["end_sd"] <= h]
+        av   = comp["valor_global_norm"].sum()
+        prog = df[(df["start_sd"] <= h) & (df["end_sd"] > h)]
+        if len(prog):
+            av += prog.apply(
+                lambda r: r["valor_global_norm"] * (h - r["start_sd"]) / max(r["duracion_h"], 1), axis=1
+            ).sum()
+        rows.append({
+            "hora_sd": h,
+            "hora_real": INICIO_SD + timedelta(hours=h),
+            "avance_acum": round(min(av * 100, 100), 2),
+            "acts_completas": len(comp),
         })
+    return pd.DataFrame(rows)
 
-    df = pd.DataFrame(resultados).sort_values("Ini_slot")
 
-    total   = len(df)
-    backlog = (df["Backlog"] == "SI").sum()
-    en_hora = total - backlog
+# ─────────────────────────────────────────────────────────────────────────────
+# MÓDULO 5: GRÁFICAS INTERACTIVAS PLOTLY
+# ─────────────────────────────────────────────────────────────────────────────
 
-    # ── KPIs ─────────────────────────────────────────────────
-    st.subheader("📊 KPIs del Plan")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total bloques",  total)
-    c2.metric("En tiempo",      en_hora)
-    c3.metric("En backlog",     backlog)
-    c4.metric("% Cumplimiento", f"{100*en_hora/total:.1f}%")
+T = "plotly_dark"  # template global
 
-    st.dataframe(df, use_container_width=True)
 
-    # ── Distribución diaria ────────────────────────────────────
-    st.subheader("📈 Carga Diaria")
-    cd = df.groupby("Fecha").agg(Bloques=("Bloque","count")).reset_index()
-    fig1 = px.bar(
-        cd, x="Fecha", y="Bloques",
-        title="Bloques de Trabajo por Día Hábil – Marzo 2026",
-        text="Bloques", color_discrete_sequence=["#2980b9"],
+def plot_gantt(df: pd.DataFrame) -> go.Figure:
+    df = df.sort_values(["centro", "start_sd"]).copy()
+    df["i_str"] = df["inicio_real"].apply(lambda x: x.strftime("%d/%m/%Y %H:%M") if hasattr(x, "strftime") else "")
+    df["f_str"] = df["fin_real"].apply(lambda x: x.strftime("%d/%m/%Y %H:%M") if hasattr(x, "strftime") else "")
+
+    fig = px.timeline(
+        df, x_start="inicio_real", x_end="fin_real", y="actividad",
+        color="criticidad", color_discrete_map=COLORES_CRITICIDAD,
+        custom_data=["centro","especialidad","ejecutor","duracion_h","start_sd","end_sd",
+                     "turno","ruta_critica","es_critica","score","criticidad_num",
+                     "riesgo_texto","valor_global","i_str","f_str","dentro_horizonte"],
+        template=T, title="📅 DIAGRAMA DE GANTT — PARADA DE PLANTA SD18MAR26",
     )
-    fig1.update_traces(textposition="outside")
-    fig1.update_layout(xaxis_tickformat="%d %b", bargap=0.25, height=380)
-    st.plotly_chart(fig1, use_container_width=True)
-
-    # ── Carga por disciplina ───────────────────────────────────
-    st.subheader("🔧 Distribución por Disciplina")
-    cd2 = df.groupby(["Fecha","Disciplina"]).size().reset_index(name="Bloques")
-    fig2 = px.bar(
-        cd2, x="Fecha", y="Bloques", color="Disciplina",
-        title="Carga por Disciplina – Marzo 2026", barmode="stack",
+    fig.update_traces(
+        hovertemplate=(
+            "<b>%{y}</b><br>"
+            "Centro: %{customdata[0]}<br>"
+            "Especialidad: %{customdata[1]}<br>"
+            "Ejecutor: %{customdata[2]}<br>"
+            "Duración: <b>%{customdata[3]}h</b><br>"
+            "Inicio: SD%{customdata[4]} · %{customdata[13]}<br>"
+            "Fin: SD%{customdata[5]} · %{customdata[14]}<br>"
+            "Turno: %{customdata[6]}<br>"
+            "Criticidad num: %{customdata[10]}<br>"
+            "Riesgo: %{customdata[11]}<br>"
+            "RC Orig: %{customdata[7]} · RC Calc: %{customdata[8]}<br>"
+            "Score: %{customdata[9]:.3f}<br>"
+            "Valor Global: %{customdata[12]:.5f}<br>"
+            "Dentro 36H: %{customdata[15]}<extra></extra>"
+        ),
+        marker_line_width=0.8, marker_line_color="rgba(255,255,255,0.4)", opacity=0.88,
     )
-    fig2.update_layout(xaxis_tickformat="%d %b", height=400)
-    st.plotly_chart(fig2, use_container_width=True)
 
-    # ── Gantt ─────────────────────────────────────────────────
-    st.subheader("📅 Diagrama de Gantt")
+    # Estrellas de ruta crítica
+    df_rc = df[df["es_critica"] == True]
+    if len(df_rc):
+        fig.add_trace(go.Scatter(
+            x=df_rc["inicio_real"], y=df_rc["actividad"],
+            mode="markers",
+            marker=dict(symbol="star", size=10, color="#FFD700", line=dict(color="white", width=1)),
+            name="⭐ Ruta Crítica", hoverinfo="skip",
+        ))
+
+    t36_str = (INICIO_SD + timedelta(hours=36)).strftime("%Y-%m-%d %H:%M:%S")
+
+    # Línea 36H — usar add_shape en lugar de add_vline (compatible con todos los Plotly)
+    fig.add_shape(type="line", x0=t36_str, x1=t36_str, y0=0, y1=1,
+                  xref="x", yref="paper",
+                  line=dict(color="#FF4444", width=2.5, dash="dash"))
+    fig.add_annotation(x=t36_str, y=1.02, xref="x", yref="paper",
+                       text="← 36H →", showarrow=False,
+                       font=dict(color="#FF4444", size=12), xanchor="center")
+
+    # Franjas de turno (8h c/u)
+    for t in range(7):
+        x0_str = (INICIO_SD + timedelta(hours=t * 8)).strftime("%Y-%m-%d %H:%M:%S")
+        x1_str = (INICIO_SD + timedelta(hours=(t + 1) * 8)).strftime("%Y-%m-%d %H:%M:%S")
+        fig.add_shape(type="rect", x0=x0_str, x1=x1_str, y0=0, y1=1,
+                      xref="x", yref="paper", layer="below",
+                      fillcolor=["rgba(255,255,255,0.02)", "rgba(100,180,255,0.04)"][t % 2],
+                      line=dict(width=0))
+        fig.add_shape(type="line", x0=x0_str, x1=x0_str, y0=0, y1=1,
+                      xref="x", yref="paper",
+                      line=dict(color="rgba(150,150,150,0.15)", width=0.5))
+
+    fig.update_layout(
+        height=max(600, len(df) * 26 + 150),
+        xaxis_title="Fecha / Hora Real",
+        yaxis=dict(autorange="reversed", tickfont=dict(size=10)),
+        legend_title_text="Criticidad",
+        legend=dict(orientation="h", y=1.02, x=0),
+        margin=dict(l=10, r=10, t=80, b=40),
+        hovermode="closest",
+    )
+    return fig
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MÓDULO 6: EXPORTAR EXCEL
+# ─────────────────────────────────────────────────────────────────────────────
+
+def exportar_excel(df: pd.DataFrame) -> bytes:
+    buf  = io.BytesIO()
+    cols = ["id","centro","actividad","orden","especialidad","ejecutor",
+            "criticidad","criticidad_num","riesgo_texto","riesgo_num",
+            "duracion_h","start_sd","end_sd","turno",
+            "valor_global","valor_global_norm","acum_centro_calc","acum_total_calc",
+            "ruta_critica","es_critica","dentro_horizonte","avance_pct","score","prioridad"]
+    df_e = df[[c for c in cols if c in df.columns]].copy()
+    for col in ["valor_global_norm","acum_centro_calc","acum_total_calc"]:
+        if col in df_e.columns:
+            df_e[col] = df_e[col].clip(upper=100).round(3)
+
+    ren = {"id":"ID","centro":"Centro","actividad":"Actividad","orden":"Orden SAP",
+           "especialidad":"Especialidad","ejecutor":"Ejecutor","criticidad":"Criticidad",
+           "criticidad_num":"Crit. Num","riesgo_texto":"Riesgo","riesgo_num":"Riesgo Num",
+           "duracion_h":"Duración (h)","start_sd":"Inicio SD","end_sd":"Fin SD","turno":"Turno",
+           "valor_global":"Valor Global","valor_global_norm":"Valor Global %",
+           "acum_centro_calc":"% Acum Centro","acum_total_calc":"% Acum Total",
+           "ruta_critica":"RC Orig","es_critica":"RC Calc",
+           "dentro_horizonte":"Dentro 36H","avance_pct":"Avance %",
+           "score":"Score","prioridad":"Prioridad"}
+    df_e = df_e.rename(columns={k:v for k,v in ren.items() if k in df_e.columns})
+
+    resumen = df.groupby("centro").agg(
+        N_Act=("id","count"), Horas=("duracion_h","sum"),
+        Criticas=("es_critica","sum"),
+        RC_Orig=("ruta_critica",lambda x:(x=="SI").sum()),
+        Makespan=("end_sd","max"),
+        Dentro_36H=("dentro_horizonte","sum"),
+        Valor_Pct=("valor_global_norm",lambda x:round(x.sum()*100,2)),
+    ).reset_index()
+    resumen["Pct_Cumpl"] = (resumen["Dentro_36H"]/resumen["N_Act"]*100).round(1)
+
+    metricas = pd.DataFrame({
+        "Métrica":["Total Actividades","RC (calc)","Makespan SD","Dentro 36H",
+                   "% Cumplimiento","Centro mayor carga","Inicio SD","Fin estimado","Horas totales"],
+        "Valor":[len(df), int(df["es_critica"].sum()), int(df["end_sd"].max()),
+                 int(df["dentro_horizonte"].sum()),
+                 f"{df['dentro_horizonte'].mean()*100:.1f}%",
+                 df.groupby("centro")["duracion_h"].sum().idxmax(),
+                 "18/03/2026 06:00",
+                 (INICIO_SD+timedelta(hours=int(df["end_sd"].max()))).strftime("%d/%m/%Y %H:%M"),
+                 int(df["duracion_h"].sum())]
+    })
+
+    with pd.ExcelWriter(buf, engine="openpyxl") as w:
+        df_e.to_excel(w, sheet_name="Cronograma", index=False)
+        resumen.to_excel(w, sheet_name="Resumen Centro", index=False)
+        metricas.to_excel(w, sheet_name="Métricas", index=False)
+        df_rc = df[df.get("es_critica", pd.Series([False]*len(df))) == True] if "es_critica" in df.columns else pd.DataFrame()
+        if not df_rc.empty:
+            df_rc[[c for c in cols if c in df_rc.columns]].rename(columns=ren).to_excel(w, sheet_name="Ruta Crítica", index=False)
+
+    buf.seek(0)
+    return buf.read()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# APP PRINCIPAL
+# ─────────────────────────────────────────────────────────────────────────────
+
+def main():
+    st.set_page_config(
+        page_title="Parada de Planta SD18MAR26",
+        page_icon="🏭", layout="wide",
+        initial_sidebar_state="expanded",
+    )
+    st.markdown("""
+    <style>
+    .main{background-color:#0D1117;}
+    div[data-testid="metric-container"]{background:#1E2D40;border-radius:8px;
+        padding:12px;border:1px solid #2a4a6a;}
+    h1,h2,h3{color:#00E5FF;}
+    .block-container{padding-top:1.2rem;padding-bottom:1rem;}
+    .stTabs [data-baseweb="tab"]{color:#AAAAAA;font-size:0.83rem;}
+    .stTabs [aria-selected="true"]{color:#00E5FF;border-bottom:2px solid #00E5FF;}
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style='background:linear-gradient(135deg,#0D47A1,#1a237e);padding:16px 22px;
+    border-radius:10px;margin-bottom:14px;border:1px solid #2a4a6a;'>
+      <h1 style='color:#00E5FF;margin:0;font-size:1.65rem;'>
+        🏭 SIMULACIÓN PARADA DE PLANTA — SD18MAR26
+      </h1>
+      <p style='color:#90CAF9;margin:4px 0 0;font-size:0.88rem;'>
+        18 Marzo 2026 · 06:00 &nbsp;|&nbsp; Horizonte objetivo: 36 horas &nbsp;|&nbsp;
+        Modelo CPM Greedy + Resource Leveling · Visualizaciones interactivas con Plotly
+      </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── SIDEBAR ──
+    with st.sidebar:
+        st.markdown("## ⚙️ Configuración")
+        st.markdown("### 📂 Archivos Excel")
+        f_act = st.file_uploader("1. Listado de Actividades", type=["xlsx"], key="fa")
+        f_pdt = st.file_uploader("2. PDT Paro de Bombeo",     type=["xlsx"], key="fp")
+        st.markdown("---")
+        st.markdown("### 🎯 Pesos Función Objetivo")
+        w_crit   = st.slider("⭐ Criticidad",    0.0, 1.0, 0.40, 0.05)
+        w_riesgo = st.slider("⚠️ Riesgo",        0.0, 1.0, 0.30, 0.05)
+        w_valor  = st.slider("💰 Valor Global",  0.0, 1.0, 0.20, 0.05)
+        w_dur    = st.slider("⏱️ Penaliz. Dur.", 0.0, 0.5, 0.10, 0.05)
+        suma = w_crit + w_riesgo + w_valor
+        st.caption(f"{'🟢' if abs(suma-1.0)<0.15 else '🟡'} Suma pesos: **{suma:.2f}**")
+        st.markdown("---")
+        st.markdown("### 🔧 Restricciones")
+        riesgo_thr = st.slider("Umbral criticidad no-solapamiento", 2, 5, 3)
+        st.markdown("---")
+        ejecutar = st.button("▶  EJECUTAR SIMULACIÓN", type="primary", use_container_width=True)
+
+    # ── VALIDACIÓN ──
+    if not f_act or not f_pdt:
+        st.info("👈 Sube los **dos archivos Excel** en el panel lateral para comenzar.")
+        c1, c2 = st.columns(2)
+        c1.markdown("**Archivo 1:** `1__Listado_Actividades_1er_SD2026_18032026.xlsx`  \nHoja: `Lista de Actividades SD`")
+        c2.markdown("**Archivo 2:** `260318_PDT_Paro_de_Bombeo_SD18MAR26_VF.xlsx`  \nHoja: `Actividades`")
+        return
+
+    # ── PROCESAMIENTO ──
+    if ejecutar or "cron" not in st.session_state:
+        with st.spinner("⚙️ Ejecutando modelo de optimización..."):
+            try:
+                dfa    = cargar_actividades(f_act.read())
+                dfp    = cargar_pdt(f_pdt.read())
+                m      = limpiar_unificar(dfa, dfp)
+                m      = scoring(m, w_crit, w_riesgo, w_valor, w_dur)
+                cron   = programar(m, 51, riesgo_thr)
+                cs     = curva_s(cron, 51)
+                df_tecnicos_ot  = tecnicos_por_ot(cron)
+                cron = dividir_especialidades(cron)
+                matriz_tecnicos = optimizar_tecnicos_turnos(cron)          
+                st.session_state.update({"cron": cron, "cs": cs, "tecnicos_ot": df_tecnicos_ot, "cron":cron, "matriz_tecnicos": matriz_tecnicos})
+            except Exception as e:
+                st.error(f"❌ Error: {e}")
+                st.exception(e)
+                return
+        st.success("✅ Simulación completada")
+
+    cron = st.session_state["cron"]
+    cs   = st.session_state["cs"]
+    df_tecnicos_ot = st.session_state["tecnicos_ot"]
+    cron = st.session_state["cron"]
+    matriz_tecnicos = st.session_state["matriz_tecnicos"]
+ 
+
+    st.subheader("👷 Técnicos requeridos por Orden de Trabajo")
+    st.dataframe(df_tecnicos_ot)
+
+    st.subheader("📅 Planificación de técnicos por hora")
+    st.caption("Cada fila es un técnico. Cada columna es una hora SD (0-36).")
+    st.dataframe(matriz_tecnicos)
+
+
+    # ── KPIs ──
+    mksp  = int(cron["end_sd"].max())
+    n_tot = len(cron)
+    n_cr  = int(cron["es_critica"].sum())
+    pct36 = cron["dentro_horizonte"].mean() * 100
+    av36  = float(np.interp(36, cs["hora_sd"], cs["avance_acum"]))
+    fin_dt = INICIO_SD + timedelta(hours=mksp)
+
+    c1,c2,c3,c4,c5,c6 = st.columns(6)
+    c1.metric("📋 Actividades", n_tot)
+    c2.metric("⏱️ Makespan", f"SD{mksp}", f"{'✅ En 36H' if mksp<=36 else f'⚠️ +{mksp-36}H'}")
+    c3.metric("⭐ Ruta Crítica", n_cr)
+    c4.metric("🎯 Cumpl. 36H", f"{pct36:.0f}%", f"{int(cron['dentro_horizonte'].sum())}/{n_tot}")
+    c5.metric("📈 Avance @SD36", f"{av36:.1f}%")
+    c6.metric("🏁 Fin Estimado", fin_dt.strftime("%d/%m %H:%M"))
     st.caption(
-        "🟢 En tiempo · 🔴 Backlog · Cada barra = 1 bloque (máx. 8h) · "
-        "Escala: tiempo laboral real, Lun–Sáb 08:00–16:00"
+        f"📅 **Inicio:** 18/03/2026 06:00 &nbsp;·&nbsp; "
+        f"**Fin:** {fin_dt.strftime('%d/%m/%Y %H:%M')} &nbsp;·&nbsp; "
+        f"**Centros:** {cron['centro'].nunique()} &nbsp;·&nbsp; "
+        f"**Horas acumuladas:** {int(cron['duracion_h'].sum())}h"
     )
-    fig_g = px.timeline(
-        df,
-        x_start="Inicio_dt", x_end="Fin_dt",
-        y="OT", color="Backlog",
-        color_discrete_map={"NO": "#27ae60", "SI": "#e74c3c"},
-        hover_data=["Tipo","Criticidad","Score","Disciplina","Atraso_h","Hora"],
-        title="Gantt – Plan de Mantenimiento Marzo 2026",
-    )
-    fig_g.update_xaxes(
-        range=[FECHA_INICIO, FECHA_INICIO + timedelta(days=31)],
-        dtick=86_400_000, tickformat="%d %b",
-    )
-    fig_g.update_layout(height=1100, xaxis_title="Marzo 2026", yaxis_title="OTs")
-    fig_g.update_yaxes(autorange="reversed")
-    st.plotly_chart(fig_g, use_container_width=True)
+    st.markdown("---")
 
-    # ── Diagnóstico final ──────────────────────────────────────
-    st.subheader("⚠️ Diagnóstico")
-    prom_vent = df["Fecha_Limite"].apply(
-        lambda x: (x - FECHA_INICIO).days
-    ).mean()
-    slot_max_usado = df["Fin_slot"].max()
+    # ── TABS ──
+    tabs = st.tabs([
+        "📅 Gantt Actividades",
+    ])
 
-    c1d, c2d, c3d = st.columns(3)
-    c1d.metric("Ventana promedio (días)", f"{prom_vent:.1f}")
-    c2d.metric("Último slot usado",       f"{slot_max_usado} / {HORIZONTE_SLOTS}")
-    c3d.metric("Utilización del horizonte", f"{100*slot_max_usado/HORIZONTE_SLOTS:.0f}%")
+    # ── TAB 1 ──
+    with tabs[0]:
+        st.subheader("Diagrama de Gantt — Todas las Actividades")
+        st.caption("🖱️ Rueda del ratón = zoom · Arrastra = desplazar · Click leyenda = filtrar · Hover = detalle completo")
+        ca, cb, cc = st.columns(3)
+        fc = ca.multiselect("Centro",      sorted(cron["centro"].unique()),       key="t1c")
+        fr = cb.multiselect("Criticidad",  ["Muy Alta","Alta","Media","Baja"],    key="t1r")
+        so = cc.checkbox("Solo ruta crítica", key="t1s")
+        dg = cron.copy()
+        if fc: dg = dg[dg["centro"].isin(fc)]
+        if fr: dg = dg[dg["criticidad"].isin(fr)]
+        if so: dg = dg[dg["es_critica"] == True]
+        st.caption(f"Mostrando **{len(dg)}** de {n_tot} actividades")
+        st.plotly_chart(plot_gantt(dg), use_container_width=True)
 
-    if prom_vent < 5:
-        st.warning("⚠️ Ventana promedio < 5 días. Considera ampliar Fecha_Limite.")
-    else:
-        st.success("✅ Ventanas suficientes – distribución natural posible.")
+
+if __name__ == "__main__":
+    main()
