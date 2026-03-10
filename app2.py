@@ -74,6 +74,7 @@ def cargar_pdt(b: bytes) -> pd.DataFrame:
 
 
 def limpiar_unificar(df_act: pd.DataFrame, df_pdt: pd.DataFrame) -> pd.DataFrame:
+    # ── Renombrar columnas del PDT
     pdt = df_pdt.rename(columns={
         "Centro planificación": "centro",
         "Actividades":          "actividad",
@@ -97,16 +98,23 @@ def limpiar_unificar(df_act: pd.DataFrame, df_pdt: pd.DataFrame) -> pd.DataFrame
     pdt = pdt[pdt["actividad"].notna()].copy()
     pdt = pdt[pd.to_numeric(pdt["duracion_h"], errors="coerce") > 0].copy()
 
+    # ── Renombrar columnas del listado de actividades
     act = df_act.rename(columns={
-        "Actividades": "actividad", "Centro planificación": "centro",
-        "CRITICIDAD": "criticidad_act", "HSE OCENSA": "hse",
-        "INTERFERENCIA": "interferencia", "COMENTARIOS": "comentarios",
+        "Actividades": "actividad",
+        "Centro planificación": "centro",
+        "CRITICIDAD": "criticidad_act",
+        "HSE OCENSA": "hse",
+        "INTERFERENCIA": "interferencia",
+        "COMENTARIOS": "comentarios",
     })
     keep = ["actividad", "criticidad_act", "hse", "interferencia", "comentarios"]
     act  = act[[c for c in keep if c in act.columns]].dropna(subset=["actividad"])
     act  = act.drop_duplicates(subset=["actividad"])
 
+    # ── Merge PDT + listado de actividades
     df = pdt.merge(act, on="actividad", how="left")
+
+    # ── Limpiar y normalizar columnas
     df["duracion_h"]     = pd.to_numeric(df["duracion_h"], errors="coerce").fillna(1).clip(1, 50)
     df["criticidad_num"] = pd.to_numeric(df["criticidad_num"], errors="coerce").fillna(2)
     df["riesgo_num"]     = pd.to_numeric(df["riesgo_num"], errors="coerce").fillna(1)
@@ -117,11 +125,12 @@ def limpiar_unificar(df_act: pd.DataFrame, df_pdt: pd.DataFrame) -> pd.DataFrame
     df["centro"]         = df["centro"].fillna("GEN").str.strip().str.upper()
     df["estado"]         = df["estado"].fillna("PROGRAMADO").str.strip().str.upper()
     df["especialidad"]   = df["especialidad"].fillna("DEFAULT").str.strip().str.upper()
+    df["ejecutor"]       = df["ejecutor"].fillna("").str.strip().str.upper()
 
-    df["ejecutor"] = df["ejecutor"].fillna("").str.strip().str.upper()
+    # ── Filtrar solo actividades de MASSY ENERGY
     df = df[df["ejecutor"].isin(["MASSY ENERGY", "MASSY ENERGY GEN"])]
 
-    # Diccionario de correcciones comunes
+    # ── Diccionario de correcciones comunes
     correcciones = {
         "ELÉCTRCIA": "ELÉCTRICA",
         "INSTRUMEMTACIÓN": "INSTRUMENTACIÓN",
@@ -129,11 +138,13 @@ def limpiar_unificar(df_act: pd.DataFrame, df_pdt: pd.DataFrame) -> pd.DataFrame
         "MECÁNICA/INSTRUMENTACIÓN": "MECÁNICA, INSTRUMENTACIÓN",
         "MECÁNICA/INSTRUMEMTACIÓN": "MECÁNICA, INSTRUMENTACIÓN",
     }
-
     df["especialidad"] = df["especialidad"].replace(correcciones)
     df["especialidad"] = df["especialidad"].str.replace(r"\s*,\s*", ", ", regex=True)
-    df = df.reset_index(drop=True)
+
+    # ── Eliminar duplicados finales por actividad
+    df = df.drop_duplicates(subset=["actividad"]).reset_index(drop=True)
     df["id"] = df.index
+
     return df
 
 
