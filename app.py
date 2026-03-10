@@ -375,10 +375,10 @@ def tecnicos_por_ot(df):
     return pd.DataFrame(rows)
 
 # ─────────────────────────────────────────────────────────
-# MÓDULO 3D – PLANIFICADOR ÓPTIMO DE TÉCNICOS
+# MÓDULO 3D – OPTIMIZADOR DE TÉCNICOS (VERSIÓN FINAL)
 # ─────────────────────────────────────────────────────────
 
-def optimizar_tecnicos_bloques(cron, horizonte=36, horas_turno=8):
+def optimizar_tecnicos_turnos(cron, horizonte=36):
 
     import pandas as pd
     import math
@@ -386,27 +386,28 @@ def optimizar_tecnicos_bloques(cron, horizonte=36, horas_turno=8):
     cron = cron.copy()
     cron["hh_restantes"] = cron["duracion_h"]
 
-    # calcular técnicos mínimos por centro y especialidad
+    TURNOS = [(0,8),(24,32)]
+    HORAS_TECNICO = 16
+
+    # calcular demanda por centro y especialidad
     demanda = cron.groupby(["centro","especialidad"])["hh_restantes"].sum().reset_index()
 
     tecnicos = []
 
     for _, r in demanda.iterrows():
 
-        n = math.ceil(r["hh_restantes"] / horas_turno)
+        n = math.ceil(r["hh_restantes"] / HORAS_TECNICO)
 
         for i in range(n):
 
             tecnicos.append({
                 "tecnico": f"{r['centro']}_{r['especialidad']}_T{i+1}",
                 "centro": r["centro"],
-                "especialidad": r["especialidad"],
-                "horas_restantes": horas_turno
+                "especialidad": r["especialidad"]
             })
 
     tecnicos = pd.DataFrame(tecnicos)
 
-    # matriz técnico × hora
     matriz = pd.DataFrame(
         "",
         index=tecnicos["tecnico"],
@@ -414,45 +415,44 @@ def optimizar_tecnicos_bloques(cron, horizonte=36, horas_turno=8):
     )
 
     # recorrer técnicos
-    for idx, t in tecnicos.iterrows():
+    for _, t in tecnicos.iterrows():
 
-        horas_disp = t["horas_restantes"]
         centro = t["centro"]
         esp = t["especialidad"]
 
-        h = 0
+        for inicio, fin in TURNOS:
 
-        while horas_disp > 0 and h < horizonte:
+            horas_turno = fin - inicio
+            h = inicio
 
-            # buscar OT compatible
-            ots = cron[
-                (cron["centro"] == centro) &
-                (cron["especialidad"] == esp) &
-                (cron["hh_restantes"] > 0)
-            ]
+            while horas_turno > 0:
 
-            if ots.empty:
-                break
+                ots = cron[
+                    (cron["centro"] == centro) &
+                    (cron["especialidad"] == esp) &
+                    (cron["hh_restantes"] > 0)
+                ]
 
-            ot = ots.sort_values("hh_restantes", ascending=False).iloc[0]
-
-            ot_idx = ot.name
-            orden = ot["orden"]
-
-            # horas posibles en esta OT
-            horas_ot = min(horas_disp, cron.loc[ot_idx,"hh_restantes"])
-
-            for i in range(horas_ot):
-
-                if h >= horizonte:
+                if ots.empty:
                     break
 
-                matriz.loc[t["tecnico"], h] = orden
+                ot = ots.sort_values("hh_restantes", ascending=False).iloc[0]
 
-                h += 1
+                ot_idx = ot.name
+                orden = ot["orden"]
 
-            cron.loc[ot_idx,"hh_restantes"] -= horas_ot
-            horas_disp -= horas_ot
+                bloque = min(
+                    horas_turno,
+                    cron.loc[ot_idx,"hh_restantes"]
+                )
+
+                for i in range(bloque):
+
+                    matriz.loc[t["tecnico"], h] = orden
+                    h += 1
+
+                cron.loc[ot_idx,"hh_restantes"] -= bloque
+                horas_turno -= bloque
 
     return matriz
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1128,7 +1128,7 @@ def main():
                 cs     = curva_s(cron, 51)
                 df_tecnicos = min_tecnicos(cron, horizonte=36, horas_turno=8)
                 df_tecnicos_ot  = tecnicos_por_ot(cron)
-                matriz_tecnicos = optimizar_tecnicos_bloques(cron)
+                matriz_tecnicos = optimizar_tecnicos_turnos(cron)
                 st.session_state.update({"cron": cron, "cs": cs, "tecnicos": df_tecnicos, "tecnicos_ot": df_tecnicos_ot, "matriz_tecnicos": matriz_tecnicos})
             except Exception as e:
                 st.error(f"❌ Error: {e}")
@@ -1386,6 +1386,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
