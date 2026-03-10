@@ -237,6 +237,32 @@ def programar(df: pd.DataFrame, horizonte: int, riesgo_thr: 4 ) -> pd.DataFrame:
     df_r["es_critica"] = crit1 | crit2 | crit3
     return df_r
 
+def calcular_pesos(especialidades):
+
+    esp = sorted(set(especialidades))
+
+    # 1 especialidad
+    if len(esp) == 1:
+        return {esp[0]: 1.0}
+
+    # 2 especialidades
+    if len(esp) == 2:
+
+        if set(esp) == {"MECÁNICA", "ELÉCTRICA"}:
+            return {"MECÁNICA": 0.65, "ELÉCTRICA": 0.35}
+
+        if set(esp) == {"MECÁNICA", "INSTRUMENTACIÓN"}:
+            return {"MECÁNICA": 0.70, "INSTRUMENTACIÓN": 0.30}
+
+        if set(esp) == {"ELÉCTRICA", "INSTRUMENTACIÓN"}:
+            return {"ELÉCTRICA": 0.60, "INSTRUMENTACIÓN": 0.40}
+
+    # 3 especialidades
+    return {
+        "MECÁNICA": 0.5,
+        "ELÉCTRICA": 0.3,
+        "INSTRUMENTACIÓN": 0.2
+    }
 # ─────────────────────────────────────────────────────────────────────────────
 # MÓDULO 3C: TECNICOS POR ORDEN DE TRABAJO
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1349,6 +1375,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
