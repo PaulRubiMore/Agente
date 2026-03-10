@@ -1105,15 +1105,10 @@ def main():
 
     cron = st.session_state["cron"]
     cs   = st.session_state["cs"]
-    df_tecnicos = st.session_state["tecnicos"]
     df_tecnicos_ot = st.session_state["tecnicos_ot"]
     cron = st.session_state["cron"]
     matriz_tecnicos = st.session_state["matriz_tecnicos"]
  
-    
-    # Mostrar tabla de técnicos mínimos
-    st.subheader("🛠️ Técnicos mínimos necesarios por especialidad")
-    st.dataframe(df_tecnicos)
 
     st.subheader("👷 Técnicos requeridos por Orden de Trabajo")
     st.dataframe(df_tecnicos_ot)
@@ -1354,6 +1349,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
