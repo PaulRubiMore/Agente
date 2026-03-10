@@ -313,6 +313,9 @@ def min_tecnicos(df: pd.DataFrame, horizonte: int = 36, horas_turno: int = 8) ->
 # ─────────────────────────────────────────────────────────────────────────────
 def tecnicos_por_ot(df):
 
+    import numpy as np
+    import pandas as pd
+
     PESOS = {
         "MECÁNICA": 0.5,
         "ELÉCTRICA": 0.3,
@@ -320,6 +323,14 @@ def tecnicos_por_ot(df):
     }
 
     HORAS_TECNICO = 8
+
+    def redondear_hora(valor):
+        entero = int(valor)
+        decimal = valor - entero
+        if decimal >= 0.5:
+            return entero + 1
+        else:
+            return entero
 
     rows = []
 
@@ -330,47 +341,42 @@ def tecnicos_por_ot(df):
         esp_list = (
             str(act["especialidad"])
             .replace("/", ",")
+            .replace("INSTRUMENTACION", "INSTRUMENTACIÓN")
             .upper()
             .split(",")
         )
 
         esp_list = [e.strip() for e in esp_list if e.strip()]
 
-        # CASO 1: UNA SOLA ESPECIALIDAD
-        if len(esp_list) == 1:
+        pesos_act = {e: PESOS.get(e,0) for e in esp_list}
 
-            horas = dur
-            tecnicos = int(np.ceil(horas / HORAS_TECNICO))
+        suma = sum(pesos_act.values())
+
+        if suma == 0:
+            pesos_norm = {e:1/len(esp_list) for e in esp_list}
+        else:
+            pesos_norm = {k:v/suma for k,v in pesos_act.items()}
+
+        for esp in esp_list:
+
+            peso = pesos_norm[esp]
+
+            horas = dur * peso
+
+            horas_redondeadas = redondear_hora(horas)
+
+            tecnicos = int(np.ceil(horas_redondeadas / HORAS_TECNICO))
 
             rows.append({
                 "Orden": act["orden"],
                 "Actividad": act["actividad"],
                 "Centro": act["centro"],
-                "Especialidad": esp_list[0],
+                "Especialidad": esp,
                 "Duracion_h": dur,
-                "Tecnicos_Requeridos": tecnicos,
+                "Horas_Especialidad": horas,
+                "Horas_Redondeadas": horas_redondeadas,
+                "Tecnicos_Requeridos": tecnicos
             })
-
-        # CASO 2: MULTI ESPECIALIDAD
-        else:
-
-            for esp in esp_list:
-
-                peso = PESOS.get(esp, 0)
-
-                horas = dur * peso
-
-                tecnicos = int(np.ceil(horas / HORAS_TECNICO))
-
-                rows.append({
-                    "Orden": act["orden"],
-                    "Actividad": act["actividad"],
-                    "Centro": act["centro"],
-                    "Especialidad": esp,
-                    "Duracion_h": dur,
-                    "Horas_Especialidad": round(horas,2),
-                    "Tecnicos_Requeridos": tecnicos,
-                })
 
     return pd.DataFrame(rows)
 
@@ -388,32 +394,49 @@ def dividir_especialidades(cron):
         "INSTRUMENTACIÓN": 0.2
     }
 
+    def redondear_hora(valor):
+        entero = int(valor)
+        decimal = valor - entero
+        if decimal >= 0.5:
+            return entero + 1
+        else:
+            return entero
+
     filas = []
 
     for _, r in cron.iterrows():
 
-        especialidades = [e.strip() for e in str(r["especialidad"]).split(",")]
+        especialidades = (
+            str(r["especialidad"])
+            .replace("/", ",")
+            .replace("INSTRUMENTACION", "INSTRUMENTACIÓN")
+            .upper()
+            .split(",")
+        )
 
-        if len(especialidades) == 1:
+        especialidades = [e.strip() for e in especialidades if e.strip()]
 
-            filas.append(r.to_dict())
+        pesos_act = {e: PESOS.get(e,0) for e in especialidades}
 
+        suma = sum(pesos_act.values())
+
+        if suma == 0:
+            pesos_norm = {e:1/len(especialidades) for e in especialidades}
         else:
+            pesos_norm = {k:v/suma for k,v in pesos_act.items()}
 
-            for esp in especialidades:
+        for esp in especialidades:
 
-                nuevo = r.to_dict()
+            nuevo = r.to_dict()
 
-                peso = PESOS.get(esp, 1/len(especialidades))
+            horas = r["duracion_h"] * pesos_norm[esp]
 
-                nuevo["especialidad"] = esp
-                nuevo["duracion_h"] = int(round(r["duracion_h"] * peso))
+            nuevo["especialidad"] = esp
+            nuevo["duracion_h"] = redondear_hora(horas)
 
-                filas.append(nuevo)
+            filas.append(nuevo)
 
-    cron_nuevo = pd.DataFrame(filas)
-
-    return cron_nuevo
+    return pd.DataFrame(filas)
     
 # ─────────────────────────────────────────────────────────
 # MÓDULO 3D – OPTIMIZADOR DE TÉCNICOS (VERSIÓN FINAL)
@@ -1429,6 +1452,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
