@@ -369,20 +369,22 @@ def dividir_especialidades(cron):
 # ─────────────────────────────────────────────────────────
 
 def optimizar_tecnicos_turnos(cron, horizonte=36):
+    """
+    Optimiza la asignación de técnicos por turno.
+    Si una actividad no se completa en el turno, se retoma al siguiente turno.
+    """
 
     cron = cron.copy()
     cron["hh_restantes"] = cron["duracion_h"]
 
-    HORAS_TECNICO = 8  # máximo por técnico diario
-    # Turnos de 8h a lo largo del horizonte
-    TURNOS = [(i, min(i+8, horizonte)) for i in range(0, horizonte, 8)]
+    TURNOS = [(0,8),(24,32)]  # Turnos diarios (hora de inicio, hora de fin)
+    HORAS_TECNICO = 16        # Capacidad total por técnico en el horizonte
 
-    # calcular demanda total por centro y especialidad
+    # calcular demanda por centro y especialidad
     demanda = cron.groupby(["centro","especialidad"])["hh_restantes"].sum().reset_index()
 
     tecnicos = []
 
-    # Crear la cantidad mínima de técnicos necesarios según demanda total
     for _, r in demanda.iterrows():
         n = math.ceil(r["hh_restantes"] / HORAS_TECNICO)
         for i in range(n):
@@ -393,9 +395,17 @@ def optimizar_tecnicos_turnos(cron, horizonte=36):
             })
 
     tecnicos = pd.DataFrame(tecnicos)
-    matriz = pd.DataFrame("", index=tecnicos["tecnico"], columns=list(range(horizonte)))
 
-    # Asignación de técnicos
+    matriz = pd.DataFrame(
+        "",
+        index=tecnicos["tecnico"],
+        columns=list(range(horizonte))
+    )
+
+    # Diccionario para recordar OT pendiente por técnico
+    actividad_pendiente = {}  # {tecnico: id_actividad}
+
+    # recorrer técnicos
     for _, t in tecnicos.iterrows():
         centro = t["centro"]
         esp = t["especialidad"]
@@ -405,29 +415,42 @@ def optimizar_tecnicos_turnos(cron, horizonte=36):
             h = inicio
 
             while horas_turno > 0:
-                # Filtrar OTs con horas restantes
-                ots = cron[
-                    (cron["centro"] == centro) &
-                    (cron["especialidad"] == esp) &
-                    (cron["hh_restantes"] > 0)
-                ]
-                if ots.empty:
-                    break
 
-                # Tomar OT con más horas restantes
-                ot = ots.sort_values("hh_restantes", ascending=False).iloc[0]
-                ot_idx = ot.name
-                orden = ot["orden"]
+                # Si hay OT pendiente para este técnico, priorizarla
+                ot_idx = None
+                if t["tecnico"] in actividad_pendiente:
+                    idxs = cron[cron["id"] == actividad_pendiente[t["tecnico"]]].index
+                    if len(idxs) > 0 and cron.loc[idxs[0], "hh_restantes"] > 0:
+                        ot_idx = idxs[0]
 
-                # Bloque máximo que puede trabajar este técnico
-                bloque = min(horas_turno, cron.loc[ot_idx,"hh_restantes"], HORAS_TECNICO)
+                # Si no hay OT pendiente, tomar la de mayor hh_restantes
+                if ot_idx is None:
+                    ots = cron[
+                        (cron["centro"] == centro) &
+                        (cron["especialidad"] == esp) &
+                        (cron["hh_restantes"] > 0)
+                    ]
+                    if ots.empty:
+                        break
+                    ot_idx = ots.sort_values("hh_restantes", ascending=False).iloc[0].name
 
+                orden = cron.loc[ot_idx, "orden"]
+                bloque = min(horas_turno, cron.loc[ot_idx,"hh_restantes"])
+
+                # Asignar horas en la matriz
                 for i in range(bloque):
                     matriz.loc[t["tecnico"], h] = orden
                     h += 1
 
+                # Actualizar horas restantes
                 cron.loc[ot_idx,"hh_restantes"] -= bloque
                 horas_turno -= bloque
+
+                # Guardar OT pendiente si no se completó
+                if cron.loc[ot_idx,"hh_restantes"] > 0:
+                    actividad_pendiente[t["tecnico"]] = cron.loc[ot_idx, "id"]
+                else:
+                    actividad_pendiente.pop(t["tecnico"], None)
 
     return matriz
 # ─────────────────────────────────────────────────────────────────────────────
