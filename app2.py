@@ -364,15 +364,17 @@ def dividir_especialidades(cron):
 
     return pd.DataFrame(filas)
     
+# ───────────────────────────────────────────────────────── 
+# MÓDULO 3D – OPTIMIZADOR DE TÉCNICOS (VERSIÓN FINAL) — AJUSTE SEGUNDO TURNO
+# ─────────────────────────────────────────────────────────
+
 def optimizar_tecnicos_turnos(cron, horizonte=36):
 
     cron = cron.copy()
     cron["hh_restantes"] = cron["duracion_h"]
 
-    HORAS_TECNICO = 8  # máximo por turno
-
-    # definir todos los turnos de 8h posibles dentro del horizonte
-    TURNOS = [(i, min(i+8, horizonte)) for i in range(0, horizonte, 8)]
+    TURNOS = [(0,8),(24,32)]
+    HORAS_TECNICO = 16
 
     # calcular demanda por centro y especialidad
     demanda = cron.groupby(["centro","especialidad"])["hh_restantes"].sum().reset_index()
@@ -380,8 +382,11 @@ def optimizar_tecnicos_turnos(cron, horizonte=36):
     tecnicos = []
 
     for _, r in demanda.iterrows():
-        n = math.ceil(r["hh_restantes"] / (HORAS_TECNICO*2))  # máximo 16h total
+
+        n = math.ceil(r["hh_restantes"] / HORAS_TECNICO)
+
         for i in range(n):
+
             tecnicos.append({
                 "tecnico": f"{r['centro']}_{r['especialidad']}_T{i+1}",
                 "centro": r["centro"],
@@ -396,36 +401,57 @@ def optimizar_tecnicos_turnos(cron, horizonte=36):
         columns=list(range(horizonte))
     )
 
-    # asignar OTs a técnicos
+    # recorrer técnicos
     for _, t in tecnicos.iterrows():
+
         centro = t["centro"]
         esp = t["especialidad"]
 
-        # obtener OTs pendientes
-        ots = cron[
-            (cron["centro"] == centro) &
-            (cron["especialidad"] == esp) &
-            (cron["hh_restantes"] > 0)
-        ].sort_values("hh_restantes", ascending=False)
+        for inicio, fin in TURNOS:
 
-        for ot_idx, ot in ots.iterrows():
-            horas_rest = int(ot["hh_restantes"])
-            h = 0
+            horas_turno = fin - inicio
+            h = inicio
 
-            while horas_rest > 0 and h < horizonte:
-                # encontrar primer bloque vacío del técnico
-                while h < horizonte and matriz.loc[t["tecnico"], h] != "":
-                    h += 1
-                if h >= horizonte:
+            while horas_turno > 0:
+
+                ots = cron[
+                    (cron["centro"] == centro) &
+                    (cron["especialidad"] == esp) &
+                    (cron["hh_restantes"] > 0)
+                ]
+
+                if ots.empty:
                     break
 
-                # asignar hasta 8 horas por turno/día
-                bloque = min(horas_rest, HORAS_TECNICO, horizonte - h)
+                ot = ots.sort_values("hh_restantes", ascending=False).iloc[0]
+                ot_idx = ot.name
+                orden = ot["orden"]
+
+                bloque = min(
+                    horas_turno,
+                    cron.loc[ot_idx,"hh_restantes"]
+                )
+
                 for i in range(bloque):
-                    matriz.loc[t["tecnico"], h+i] = ot["orden"]
-                horas_rest -= bloque
-                cron.loc[ot_idx, "hh_restantes"] -= bloque
-                h += bloque
+                    matriz.loc[t["tecnico"], h] = orden
+                    h += 1
+
+                # Reducir horas restantes de la OT
+                cron.loc[ot_idx,"hh_restantes"] -= bloque
+                horas_turno -= bloque
+
+            # --------- NUEVO BLOQUE: pasar OT al siguiente turno si queda hh_restantes
+            siguiente_turno_idx = TURNOS.index((inicio,fin)) + 1
+            if cron.loc[ot_idx,"hh_restantes"] > 0 and siguiente_turno_idx < len(TURNOS):
+                sig_inicio, sig_fin = TURNOS[siguiente_turno_idx]
+                # Asignar automáticamente el resto de la OT en el siguiente turno
+                horas_turno_sig = sig_fin - sig_inicio
+                h_sig = sig_inicio
+                bloque_sig = min(horas_turno_sig, cron.loc[ot_idx,"hh_restantes"])
+                for i in range(bloque_sig):
+                    matriz.loc[t["tecnico"], h_sig] = orden
+                    h_sig += 1
+                cron.loc[ot_idx,"hh_restantes"] -= bloque_sig
 
     return matriz
 # ─────────────────────────────────────────────────────────────────────────────
