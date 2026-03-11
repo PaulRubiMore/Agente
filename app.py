@@ -744,10 +744,10 @@ def main():
     ]
 
     def highlight_ot(val):
-    val_str = str(val)  # Convertimos todo a string
-    if filtro_orden and filtro_orden in val_str:
-        return "background-color: #FFD700"
-    return ""
+        val_str = str(val)  # Convertimos todo a string
+        if filtro_orden and filtro_orden in val_str:
+            return "background-color: #FFD700"
+        return ""
 
     st.dataframe(matriz_filtrada.style.applymap(highlight_ot))
 
@@ -774,6 +774,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
