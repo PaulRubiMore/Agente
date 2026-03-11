@@ -373,20 +373,19 @@ def optimizar_tecnicos_turnos(cron, horizonte=36):
     cron = cron.copy()
     cron["hh_restantes"] = cron["duracion_h"]
 
-    TURNOS = [(0,8),(24,32)]
-    HORAS_TECNICO = 16
+    HORAS_TECNICO = 8  # máximo por técnico diario
+    # Turnos de 8h a lo largo del horizonte
+    TURNOS = [(i, min(i+8, horizonte)) for i in range(0, horizonte, 8)]
 
-    # calcular demanda por centro y especialidad
+    # calcular demanda total por centro y especialidad
     demanda = cron.groupby(["centro","especialidad"])["hh_restantes"].sum().reset_index()
 
     tecnicos = []
 
+    # Crear la cantidad mínima de técnicos necesarios según demanda total
     for _, r in demanda.iterrows():
-
         n = math.ceil(r["hh_restantes"] / HORAS_TECNICO)
-
         for i in range(n):
-
             tecnicos.append({
                 "tecnico": f"{r['centro']}_{r['especialidad']}_T{i+1}",
                 "centro": r["centro"],
@@ -394,47 +393,36 @@ def optimizar_tecnicos_turnos(cron, horizonte=36):
             })
 
     tecnicos = pd.DataFrame(tecnicos)
+    matriz = pd.DataFrame("", index=tecnicos["tecnico"], columns=list(range(horizonte)))
 
-    matriz = pd.DataFrame(
-        "",
-        index=tecnicos["tecnico"],
-        columns=list(range(horizonte))
-    )
-
-    # recorrer técnicos
+    # Asignación de técnicos
     for _, t in tecnicos.iterrows():
-
         centro = t["centro"]
         esp = t["especialidad"]
 
         for inicio, fin in TURNOS:
-
             horas_turno = fin - inicio
             h = inicio
 
             while horas_turno > 0:
-
+                # Filtrar OTs con horas restantes
                 ots = cron[
                     (cron["centro"] == centro) &
                     (cron["especialidad"] == esp) &
                     (cron["hh_restantes"] > 0)
                 ]
-
                 if ots.empty:
                     break
 
+                # Tomar OT con más horas restantes
                 ot = ots.sort_values("hh_restantes", ascending=False).iloc[0]
-
                 ot_idx = ot.name
                 orden = ot["orden"]
 
-                bloque = min(
-                    horas_turno,
-                    cron.loc[ot_idx,"hh_restantes"]
-                )
+                # Bloque máximo que puede trabajar este técnico
+                bloque = min(horas_turno, cron.loc[ot_idx,"hh_restantes"], HORAS_TECNICO)
 
                 for i in range(bloque):
-
                     matriz.loc[t["tecnico"], h] = orden
                     h += 1
 
