@@ -727,32 +727,9 @@ def main():
     st.subheader("👷 Técnicos requeridos por Orden de Trabajo")
     st.dataframe(df_tecnicos_ot)
 
-    st.subheader("📅 Planificación de técnicos por hora") 
+    st.subheader("📅 Planificación de técnicos por hora")
     st.caption("Cada fila es un técnico. Cada columna es una hora SD (0-36).")
-
-    # ── FILTROS ──
-    centros_sel = st.multiselect("Filtrar por Centro", sorted(matriz_tecnicos["centro"].unique()))
-    ots_sel     = st.multiselect("Filtrar por Orden de Trabajo", sorted(matriz_tecnicos.values.flatten()), help="Selecciona OTs específicas")
-
-    # Filtrar matriz según centros
-    df_matriz_filtrada = matriz_tecnicos.copy()
-    if centros_sel:
-        df_matriz_filtrada = df_matriz_filtrada[df_matriz_filtrada["centro"].isin(centros_sel)]
-    def color_ot(val):
-        if ots_sel and val not in ots_sel:
-            return "background-color: #f0f0f0"  # grises fuera del filtro
-        if val == "":
-            return ""
-        import matplotlib.colors as mcolors
-        import matplotlib.cm as cm
-        cmap = cm.get_cmap('tab20')
-        idx = abs(hash(val)) % 20
-        rgb = tuple(int(255*x) for x in cmap(idx)[:3])
-        return f"background-color: rgb{rgb}; color: white"
-    st.dataframe(df_matriz_filtrada.style.applymap(color_ot))
-
-
-
+    st.dataframe(matriz_tecnicos)
 
 
     # ── TABS ──
@@ -778,6 +755,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
