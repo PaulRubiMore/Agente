@@ -863,7 +863,35 @@ def main():
 
     st.subheader("📊 Gantt por Orden de Trabajo (por horas de técnicos)")
     st.caption("Cada barra = horas trabajadas de una OT por técnico")
-    st.plotly_chart(plot_gantt_ot_turnos(matriz_tecnicos), use_container_width=True)
+    # ── FILTROS ──
+    col1, col2 = st.columns(2)
+    centros = sorted(cron["centro"].unique())
+    ordenes = sorted(cron["orden"].astype(str).unique())
+    filtro_centro = col1.multiselect(
+        "Filtrar por Centro",
+        centros
+    )
+    filtro_ot = col2.selectbox(
+        "Seleccionar Orden de Trabajo",
+        ["Todas"] + ordenes
+    )
+    
+    # ── APLICAR FILTROS ──
+    cron_filtrado = cron.copy()
+    if filtro_centro:
+        cron_filtrado = cron_filtrado[
+           cron_filtrado["centro"].isin(filtro_centro)
+        ]
+    if filtro_ot != "Todas":
+        cron_filtrado = cron_filtrado[
+           cron_filtrado["orden"].astype(str) == filtro_ot
+        ]
+
+# ── GRAFICO ──
+st.plotly_chart(
+    plot_gantt_ot_turnos(matriz_tecnicos),
+    use_container_width=True
+)
     
     # ── TABS ──
     tabs = st.tabs([
