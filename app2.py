@@ -791,7 +791,6 @@ def main():
                 m      = limpiar_unificar(dfa, dfp)
                 m      = scoring(m, w_crit, w_riesgo, w_valor, w_dur)
                 cron   = programar(m, 51, riesgo_thr)
-                cs     = curva_s(cron, 51)
                 df_tecnicos_ot  = tecnicos_por_ot(cron)
                 cron = dividir_especialidades(cron)
                 matriz_tecnicos = optimizar_tecnicos_turnos(cron)          
@@ -803,7 +802,6 @@ def main():
         st.success("✅ Simulación completada")
 
     cron = st.session_state["cron"]
-    cs   = st.session_state["cs"]
     df_tecnicos_ot = st.session_state["tecnicos_ot"]
     cron = st.session_state["cron"]
     matriz_tecnicos = st.session_state["matriz_tecnicos"]
