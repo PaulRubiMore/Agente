@@ -449,18 +449,18 @@ def optimizar_tecnicos_turnos(cron, horizonte=36):
 
     return matriz
     
-
 # ─────────────────────────────────────────────────────────
-# MÓDULO 3E: GANTT POR ORDEN DE TRABAJO (TURNOS)
+# MÓDULO 3E: GANTT POR ORDEN DE TRABAJO (TURNOS 0-8 y 24-36)
 # ─────────────────────────────────────────────────────────
 
 def plot_gantt_ot_turnos(matriz, inicio_sd="2026-03-18 06:00"):
+
     import pandas as pd
     import plotly.express as px
 
     inicio_dt = pd.to_datetime(inicio_sd)
 
-    # Convertir matriz a formato largo
+    # ── Convertir matriz a formato largo ──
     df = matriz.reset_index()
     df.rename(columns={df.columns[0]: "tecnico"}, inplace=True)
 
@@ -470,18 +470,18 @@ def plot_gantt_ot_turnos(matriz, inicio_sd="2026-03-18 06:00"):
         value_name="orden"
     )
 
-    # convertir horas a número
     df_long["hora_sd"] = df_long["hora_sd"].astype(int)
 
-    # quitar celdas vacías
+    # quitar vacíos
     df_long = df_long[df_long["orden"] != ""]
 
-    # ── FILTRAR SOLO TURNOS ──
+    # ── SOLO TURNOS ACTIVOS ──
     df_long = df_long[
         ((df_long["hora_sd"] >= 0) & (df_long["hora_sd"] < 8)) |
         ((df_long["hora_sd"] >= 24) & (df_long["hora_sd"] < 36))
     ]
 
+    # ── CREAR BLOQUES DE TRABAJO ──
     bloques = []
 
     for tec, grp in df_long.groupby("tecnico"):
@@ -489,6 +489,7 @@ def plot_gantt_ot_turnos(matriz, inicio_sd="2026-03-18 06:00"):
         grp = grp.sort_values("hora_sd")
 
         prev_ot = None
+        prev_h = None
         start_h = None
 
         for _, row in grp.iterrows():
@@ -496,36 +497,41 @@ def plot_gantt_ot_turnos(matriz, inicio_sd="2026-03-18 06:00"):
             ot = row["orden"]
             h = row["hora_sd"]
 
-            if ot != prev_ot:
+            # romper bloque si cambia OT o hay salto de hora
+            if (ot != prev_ot) or (prev_h is not None and h != prev_h + 1):
 
                 if prev_ot is not None:
                     bloques.append({
                         "tecnico": tec,
                         "orden": prev_ot,
                         "start_dt": inicio_dt + pd.Timedelta(hours=start_h),
-                        "end_dt": inicio_dt + pd.Timedelta(hours=h)
+                        "end_dt": inicio_dt + pd.Timedelta(hours=prev_h + 1)
                     })
 
-                prev_ot = ot
                 start_h = h
 
+            prev_ot = ot
+            prev_h = h
+
+        # último bloque
         if prev_ot is not None:
             bloques.append({
                 "tecnico": tec,
                 "orden": prev_ot,
                 "start_dt": inicio_dt + pd.Timedelta(hours=start_h),
-                "end_dt": inicio_dt + pd.Timedelta(hours=grp["hora_sd"].max() + 1)
+                "end_dt": inicio_dt + pd.Timedelta(hours=prev_h + 1)
             })
 
     df_bloques = pd.DataFrame(bloques)
 
+    # ── GANTT ──
     fig = px.timeline(
         df_bloques,
         x_start="start_dt",
         x_end="end_dt",
         y="tecnico",
         color="orden",
-        title="📊 Gantt por Orden de Trabajo (Turnos 0-8 y 24-36)",
+        title="📊 Gantt Técnicos por Orden de Trabajo",
         labels={
             "orden": "Orden de Trabajo",
             "tecnico": "Técnico",
@@ -544,6 +550,7 @@ def plot_gantt_ot_turnos(matriz, inicio_sd="2026-03-18 06:00"):
     )
 
     return fig
+
 # ─────────────────────────────────────────────────────────────────────────────
 # MÓDULO 4: CURVA S
 # ─────────────────────────────────────────────────────────────────────────────
@@ -856,7 +863,6 @@ def main():
     st.subheader("📊 Gantt por Orden de Trabajo (por horas de técnicos)")
     st.caption("Cada barra = horas trabajadas de una OT por técnico")
     st.plotly_chart(plot_gantt_ot_turnos(matriz_tecnicos), use_container_width=True)
-
     
     # ── TABS ──
     tabs = st.tabs([
