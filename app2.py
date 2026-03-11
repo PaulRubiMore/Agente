@@ -812,7 +812,6 @@ def main():
     n_tot = len(cron)
     n_cr  = int(cron["es_critica"].sum())
     pct36 = cron["dentro_horizonte"].mean() * 100
-    av36  = float(np.interp(36, cs["hora_sd"], cs["avance_acum"]))
     fin_dt = INICIO_SD + timedelta(hours=mksp)
 
     c1,c2,c3,c4,c5,c6 = st.columns(6)
