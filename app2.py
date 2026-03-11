@@ -823,6 +823,7 @@ def main():
         st.success("✅ Simulación completada")
 
     cron = st.session_state["cron"]
+    cs   = st.session_state["cs"]
     df_tecnicos_ot = st.session_state["tecnicos_ot"]
     cron = st.session_state["cron"]
     matriz_tecnicos = st.session_state["matriz_tecnicos"]
