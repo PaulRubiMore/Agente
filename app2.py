@@ -369,22 +369,19 @@ def dividir_especialidades(cron):
 # ─────────────────────────────────────────────────────────
 
 def optimizar_tecnicos_turnos(cron, horizonte=36):
-    """
-    Optimiza la asignación de técnicos por turno.
-    Si una actividad no se completa en el turno, se retoma al siguiente turno.
-    """
+    import math
+    import pandas as pd
 
     cron = cron.copy()
     cron["hh_restantes"] = cron["duracion_h"]
 
-    TURNOS = [(0,8),(24,32)]  # Turnos diarios (hora de inicio, hora de fin)
-    HORAS_TECNICO = 16        # Capacidad total por técnico en el horizonte
+    TURNOS = [(0,8),(24,32)]  # Turnos diarios
+    HORAS_TECNICO = 16        # Capacidad total por técnico
 
-    # calcular demanda por centro y especialidad
+    # Calcular demanda por centro y especialidad
     demanda = cron.groupby(["centro","especialidad"])["hh_restantes"].sum().reset_index()
 
     tecnicos = []
-
     for _, r in demanda.iterrows():
         n = math.ceil(r["hh_restantes"] / HORAS_TECNICO)
         for i in range(n):
@@ -396,16 +393,17 @@ def optimizar_tecnicos_turnos(cron, horizonte=36):
 
     tecnicos = pd.DataFrame(tecnicos)
 
+    # Crear matriz vacía
     matriz = pd.DataFrame(
         "",
         index=tecnicos["tecnico"],
         columns=list(range(horizonte))
     )
 
-    # Diccionario para recordar OT pendiente por técnico
-    actividad_pendiente = {}  # {tecnico: id_actividad}
+    # Diccionario para guardar OT pendiente por técnico
+    actividad_pendiente = {}  # {tecnico: ot_idx}
 
-    # recorrer técnicos
+    # Recorrer técnicos
     for _, t in tecnicos.iterrows():
         centro = t["centro"]
         esp = t["especialidad"]
@@ -416,14 +414,9 @@ def optimizar_tecnicos_turnos(cron, horizonte=36):
 
             while horas_turno > 0:
 
-                # Si hay OT pendiente para este técnico, priorizarla
-                ot_idx = None
-                if t["tecnico"] in actividad_pendiente:
-                    idxs = cron[cron["id"] == actividad_pendiente[t["tecnico"]]].index
-                    if len(idxs) > 0 and cron.loc[idxs[0], "hh_restantes"] > 0:
-                        ot_idx = idxs[0]
+                # Priorizar OT pendiente
+                ot_idx = actividad_pendiente.get(t["tecnico"], None)
 
-                # Si no hay OT pendiente, tomar la de mayor hh_restantes
                 if ot_idx is None:
                     ots = cron[
                         (cron["centro"] == centro) &
@@ -435,9 +428,11 @@ def optimizar_tecnicos_turnos(cron, horizonte=36):
                     ot_idx = ots.sort_values("hh_restantes", ascending=False).iloc[0].name
 
                 orden = cron.loc[ot_idx, "orden"]
+
+                # Bloque a asignar: mínimo entre horas del turno y horas restantes de la OT
                 bloque = min(horas_turno, cron.loc[ot_idx,"hh_restantes"])
 
-                # Asignar horas en la matriz
+                # Asignar horas consecutivas en la matriz
                 for i in range(bloque):
                     matriz.loc[t["tecnico"], h] = orden
                     h += 1
@@ -446,9 +441,9 @@ def optimizar_tecnicos_turnos(cron, horizonte=36):
                 cron.loc[ot_idx,"hh_restantes"] -= bloque
                 horas_turno -= bloque
 
-                # Guardar OT pendiente si no se completó
+                # Si la OT no terminó, guardar pendiente para el próximo turno
                 if cron.loc[ot_idx,"hh_restantes"] > 0:
-                    actividad_pendiente[t["tecnico"]] = cron.loc[ot_idx, "id"]
+                    actividad_pendiente[t["tecnico"]] = ot_idx
                 else:
                     actividad_pendiente.pop(t["tecnico"], None)
 
