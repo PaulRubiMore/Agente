@@ -461,7 +461,7 @@ def plot_gantt_ot_turnos(matriz: pd.DataFrame, inicio_sd="2026-03-18 06:00"):
 
     inicio_dt = pd.to_datetime(inicio_sd)
 
-    df_long = matriz.reset_index().melt(id_vars="index", var_name="hora_sd", value_name="orden")
+    df_long = matriz.reset_index().melt(id_vars=matriz.index.name or "tecnico", var_name="hora_sd", value_name="orden")
     df_long = df_long[df_long["orden"] != ""].copy()
     df_long.rename(columns={"index": "tecnico"}, inplace=True)
     df_long["hora_sd"] = df_long["hora_sd"].astype(int)
