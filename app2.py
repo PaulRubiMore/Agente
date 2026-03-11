@@ -452,13 +452,15 @@ def optimizar_tecnicos_turnos(cron, horizonte=36):
 # ─────────────────────────────────────────────────────────
 # MÓDULO 3E: GANTT POR ORDEN DE TRABAJO
 # ─────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────
+# MÓDULO 3E: GANTT POR ORDEN DE TRABAJO (Turnos 8h)
+# ─────────────────────────────────────────────────────────
 def plot_gantt_ot_turnos(matriz: pd.DataFrame, inicio_sd="2026-03-18 06:00"):
     import pandas as pd
     import plotly.express as px
 
     inicio_dt = pd.to_datetime(inicio_sd)
 
-    # Convertimos matriz a formato largo
     df_long = matriz.reset_index().melt(id_vars="index", var_name="hora_sd", value_name="orden")
     df_long = df_long[df_long["orden"] != ""].copy()
     df_long.rename(columns={"index": "tecnico"}, inplace=True)
@@ -485,7 +487,6 @@ def plot_gantt_ot_turnos(matriz: pd.DataFrame, inicio_sd="2026-03-18 06:00"):
                 prev_ot = ot
                 start_h = h
 
-        # Agregar el último bloque
         if prev_ot is not None:
             bloques.append({
                 "tecnico": tec,
