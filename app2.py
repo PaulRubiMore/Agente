@@ -364,29 +364,29 @@ def dividir_especialidades(cron):
 
     return pd.DataFrame(filas)
     
-# ───────────────────────────────────────────────────────── 
-# MÓDULO 3D – OPTIMIZADOR DE TÉCNICOS (VERSIÓN FINAL) — AJUSTE SEGUNDO TURNO
 # ─────────────────────────────────────────────────────────
-
-# ───────────────────────────────────────────────
-# OPTIMIZADOR DE TÉCNICOS – TURNOS SECUENCIALES
-# ───────────────────────────────────────────────
+# MÓDULO 3D – OPTIMIZADOR DE TÉCNICOS (VERSIÓN FINAL)
+# ─────────────────────────────────────────────────────────
 
 def optimizar_tecnicos_turnos(cron, horizonte=36):
 
     cron = cron.copy()
     cron["hh_restantes"] = cron["duracion_h"]
 
-    TURNOS = [(0,8),(8,16),(16,24),(24,32),(32,40)]  # todos los turnos posibles
+    TURNOS = [(0,8),(24,32)]
     HORAS_TECNICO = 16
 
     # calcular demanda por centro y especialidad
     demanda = cron.groupby(["centro","especialidad"])["hh_restantes"].sum().reset_index()
 
     tecnicos = []
+
     for _, r in demanda.iterrows():
+
         n = math.ceil(r["hh_restantes"] / HORAS_TECNICO)
+
         for i in range(n):
+
             tecnicos.append({
                 "tecnico": f"{r['centro']}_{r['especialidad']}_T{i+1}",
                 "centro": r["centro"],
@@ -394,31 +394,52 @@ def optimizar_tecnicos_turnos(cron, horizonte=36):
             })
 
     tecnicos = pd.DataFrame(tecnicos)
-    matriz = pd.DataFrame("", index=tecnicos["tecnico"], columns=list(range(horizonte)))
+
+    matriz = pd.DataFrame(
+        "",
+        index=tecnicos["tecnico"],
+        columns=list(range(horizonte))
+    )
 
     # recorrer técnicos
     for _, t in tecnicos.iterrows():
+
         centro = t["centro"]
-        esp    = t["especialidad"]
+        esp = t["especialidad"]
 
         for inicio, fin in TURNOS:
+
+            horas_turno = fin - inicio
             h = inicio
-            while h < fin:
-                # tomar OT más larga disponible
-                ots = cron[(cron["centro"]==centro) & (cron["especialidad"]==esp) & (cron["hh_restantes"]>0)]
+
+            while horas_turno > 0:
+
+                ots = cron[
+                    (cron["centro"] == centro) &
+                    (cron["especialidad"] == esp) &
+                    (cron["hh_restantes"] > 0)
+                ]
+
                 if ots.empty:
                     break
+
                 ot = ots.sort_values("hh_restantes", ascending=False).iloc[0]
+
                 ot_idx = ot.name
                 orden = ot["orden"]
 
-                # asignar hora por hora, respetando el turno
-                bloque = min(fin - h, cron.loc[ot_idx,"hh_restantes"])
+                bloque = min(
+                    horas_turno,
+                    cron.loc[ot_idx,"hh_restantes"]
+                )
+
                 for i in range(bloque):
-                    if h < horizonte:
-                        matriz.loc[t["tecnico"], h] = orden
-                        h += 1
+
+                    matriz.loc[t["tecnico"], h] = orden
+                    h += 1
+
                 cron.loc[ot_idx,"hh_restantes"] -= bloque
+                horas_turno -= bloque
 
     return matriz
 # ─────────────────────────────────────────────────────────────────────────────
@@ -526,8 +547,6 @@ def plot_gantt(df: pd.DataFrame) -> go.Figure:
         hovermode="closest",
     )
     return fig
-
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MÓDULO 6: EXPORTAR EXCEL
@@ -706,9 +725,29 @@ def main():
     st.subheader("👷 Técnicos requeridos por Orden de Trabajo")
     st.dataframe(df_tecnicos_ot)
 
+    # ── FILTROS EN STREAMLIT PARA MATRIZ DE TÉCNICOS ──
     st.subheader("📅 Planificación de técnicos por hora")
     st.caption("Cada fila es un técnico. Cada columna es una hora SD (0-36).")
-    st.dataframe(matriz_tecnicos)
+    
+    centros_disponibles = sorted(matriz_tecnicos.index.str.split("_").str[0].unique())
+    filtro_centro = st.multiselect("Filtrar por Centro", centros_disponibles)
+    
+    ordenes_disponibles = sorted(cron["orden"].dropna().astype(str).unique())
+    filtro_orden = st.selectbox("Resaltar Orden de Trabajo", [""] + ordenes_disponibles)
+
+    matriz_filtrada = matriz_tecnicos.copy()
+    if filtro_centro:
+        matriz_filtrada = matriz_filtrada[
+           matriz_filtrada.index.str.split("_").str[0].isin(filtro_centro)
+    ]
+
+    def highlight_ot(val):
+        val_str = str(val)  # Convertimos todo a string
+        if filtro_orden and filtro_orden in val_str:
+            return "background-color: #FFD700"
+        return ""
+
+    st.dataframe(matriz_filtrada.style.applymap(highlight_ot))
 
     # ── TABS ──
     tabs = st.tabs([
