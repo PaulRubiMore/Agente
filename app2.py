@@ -464,7 +464,7 @@ def plot_gantt_ot_simple(matriz):
         prev_ot = None
         start_h = None
         for h, ot in enumerate(row):
-            if ot == "":
+            if not ot or pd.isna(ot):  # Saltar celdas vacías o NaN
                 if prev_ot is not None:
                     bloques.append({
                         "orden": prev_ot,
@@ -497,8 +497,8 @@ def plot_gantt_ot_simple(matriz):
 
     df_bloques = pd.DataFrame(bloques)
 
-    # 🔹 Aseguramos que todas las OTs aparezcan en el eje Y
-    ordenes = sorted(df_bloques["orden"].unique())
+    # 🔹 Filtramos OTs válidas antes de convertir a categórica
+    ordenes = sorted([x for x in df_bloques["orden"].unique() if pd.notna(x)])
     df_bloques["orden"] = pd.Categorical(df_bloques["orden"], categories=ordenes, ordered=True)
 
     # Gráfico Gantt
