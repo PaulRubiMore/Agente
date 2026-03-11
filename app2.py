@@ -452,16 +452,11 @@ def optimizar_tecnicos_turnos(cron, horizonte=36):
 # ─────────────────────────────────────────────────────────
 # MÓDULO 3E: GANTT POR ORDEN DE TRABAJO
 # ─────────────────────────────────────────────────────────
-import pandas as pd
-import plotly.express as px
-import datetime
-
 def plot_gantt_ot_simple(matriz):
-    """
-    Dibuja un Gantt simple por Orden de Trabajo:
-    - Y = Orden de trabajo
-    - X = hora SD (convertida a datetime a partir de inicio)
-    """
+    import pandas as pd
+    import plotly.express as px
+    import datetime
+
     inicio_sd = datetime.datetime(2026,3,18,6,0,0)  # Miércoles 18, 6:00
     bloques = []
 
@@ -470,7 +465,6 @@ def plot_gantt_ot_simple(matriz):
         start_h = None
         for h, ot in enumerate(row):
             if ot == "":
-                # Fin de bloque si estaba trabajando en una OT
                 if prev_ot is not None:
                     bloques.append({
                         "orden": prev_ot,
@@ -482,7 +476,6 @@ def plot_gantt_ot_simple(matriz):
                     start_h = None
                 continue
 
-            # OT nueva
             if ot != prev_ot:
                 if prev_ot is not None:
                     bloques.append({
@@ -494,7 +487,6 @@ def plot_gantt_ot_simple(matriz):
                 prev_ot = ot
                 start_h = h
 
-        # Último bloque de la fila
         if prev_ot is not None:
             bloques.append({
                 "orden": prev_ot,
@@ -504,6 +496,10 @@ def plot_gantt_ot_simple(matriz):
             })
 
     df_bloques = pd.DataFrame(bloques)
+
+    # 🔹 Aseguramos que todas las OTs aparezcan en el eje Y
+    ordenes = sorted(df_bloques["orden"].unique())
+    df_bloques["orden"] = pd.Categorical(df_bloques["orden"], categories=ordenes, ordered=True)
 
     # Gráfico Gantt
     fig = px.timeline(
