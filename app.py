@@ -727,9 +727,27 @@ def main():
     st.subheader("👷 Técnicos requeridos por Orden de Trabajo")
     st.dataframe(df_tecnicos_ot)
 
+    # ── FILTROS EN STREAMLIT PARA MATRIZ DE TÉCNICOS ──
     st.subheader("📅 Planificación de técnicos por hora")
     st.caption("Cada fila es un técnico. Cada columna es una hora SD (0-36).")
-    st.dataframe(matriz_tecnicos)
+    centros_disponibles = sorted(matriz_tecnicos.index.str.split("_").str[0].unique())
+    filtro_centro = st.multiselect("Filtrar por Centro", centros_disponibles)
+    ordenes_disponibles = sorted(cron["orden"].unique())
+    filtro_orden = st.selectbox("Resaltar Orden de Trabajo", [""] + ordenes_disponibles)
+
+    matriz_filtrada = matriz_tecnicos.copy()
+    if filtro_centro:
+        matriz_filtrada = matriz_filtrada[matriz_filtrada.index.str.split("_").str[0].isin(filtro_centro)]
+    if filtro_orden:
+        def highlight_ot(val):
+            return "background-color: #FFD700" if val == filtro_orden else ""
+        st.dataframe(matriz_filtrada.style.applymap(highlight_ot))
+    else:
+        st.dataframe(matriz_filtrada)
+
+
+
+
 
 
     # ── TABS ──
@@ -755,6 +773,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
