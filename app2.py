@@ -457,9 +457,12 @@ def plot_gantt_ot(matriz: pd.DataFrame):
     import plotly.express as px
     import pandas as pd
 
-    df_long = matriz.reset_index().melt(id_vars="index", var_name="hora_sd", value_name="orden")
+    df_long = matriz.reset_index().rename(columns={matriz.index.name or 0: "tecnico"}).melt(
+        id_vars="tecnico",
+        var_name="hora_sd",
+        value_name="orden"
+    )
     df_long = df_long[df_long["orden"] != ""]
-    df_long.rename(columns={"index": "tecnico"}, inplace=True)
 
     bloques = []
     for tec, grp in df_long.groupby("tecnico"):
