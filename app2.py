@@ -464,10 +464,10 @@ def plot_gantt_ot_simple(matriz):
         prev_ot = None
         start_h = None
         for h, ot in enumerate(row):
-            if not ot or pd.isna(ot):  # Saltar celdas vacías o NaN
+            if pd.isna(ot) or ot == "":
                 if prev_ot is not None:
                     bloques.append({
-                        "orden": prev_ot,
+                        "orden": str(prev_ot),
                         "tecnico": tec,
                         "start": inicio_sd + datetime.timedelta(hours=start_h),
                         "end": inicio_sd + datetime.timedelta(hours=h)
@@ -479,7 +479,7 @@ def plot_gantt_ot_simple(matriz):
             if ot != prev_ot:
                 if prev_ot is not None:
                     bloques.append({
-                        "orden": prev_ot,
+                        "orden": str(prev_ot),
                         "tecnico": tec,
                         "start": inicio_sd + datetime.timedelta(hours=start_h),
                         "end": inicio_sd + datetime.timedelta(hours=h)
@@ -489,7 +489,7 @@ def plot_gantt_ot_simple(matriz):
 
         if prev_ot is not None:
             bloques.append({
-                "orden": prev_ot,
+                "orden": str(prev_ot),
                 "tecnico": tec,
                 "start": inicio_sd + datetime.timedelta(hours=start_h),
                 "end": inicio_sd + datetime.timedelta(hours=len(row))
@@ -497,11 +497,10 @@ def plot_gantt_ot_simple(matriz):
 
     df_bloques = pd.DataFrame(bloques)
 
-    # 🔹 Filtramos OTs válidas antes de convertir a categórica
-    ordenes = sorted([x for x in df_bloques["orden"].unique() if pd.notna(x)])
+    # Convertir todo a string antes de ordenar
+    ordenes = sorted([str(x) for x in df_bloques["orden"].unique() if pd.notna(x)])
     df_bloques["orden"] = pd.Categorical(df_bloques["orden"], categories=ordenes, ordered=True)
 
-    # Gráfico Gantt
     fig = px.timeline(
         df_bloques,
         x_start="start",
