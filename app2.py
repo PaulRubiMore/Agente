@@ -448,6 +448,57 @@ def optimizar_tecnicos_turnos(cron, horizonte=36):
                     actividad_pendiente.pop(t["tecnico"], None)
 
     return matriz
+    
+# ─────────────────────────────────────────────────────────
+# MÓDULO 3E: GANTT POR ORDEN DE TRABAJO
+# ─────────────────────────────────────────────────────────
+
+def plot_gantt_ot(matriz: pd.DataFrame):
+    import plotly.express as px
+    import pandas as pd
+
+    df_long = matriz.reset_index().melt(id_vars="index", var_name="hora_sd", value_name="orden")
+    df_long = df_long[df_long["orden"] != ""]
+    df_long.rename(columns={"index": "tecnico"}, inplace=True)
+
+    bloques = []
+    for tec, grp in df_long.groupby("tecnico"):
+        grp = grp.sort_values("hora_sd")
+        prev_ot = None
+        start = None
+
+        for _, row in grp.iterrows():
+            ot = row["orden"]
+            h = row["hora_sd"]
+
+            if ot != prev_ot:
+                if prev_ot is not None:
+                    bloques.append({"tecnico": tec, "orden": prev_ot, "start_sd": start, "end_sd": h})
+                prev_ot = ot
+                start = h
+        if prev_ot is not None:
+            bloques.append({"tecnico": tec, "orden": prev_ot, "start_sd": start, "end_sd": h + 1})
+
+    df_bloques = pd.DataFrame(bloques)
+
+    fig = px.timeline(
+        df_bloques,
+        x_start="start_sd",
+        x_end="end_sd",
+        y="orden",
+        color="tecnico",
+        title="📊 Gantt por Orden de Trabajo",
+        labels={"orden": "Orden de Trabajo", "tecnico": "Técnico", "start_sd": "Hora SD"},
+    )
+
+    fig.update_yaxes(autorange="reversed")
+    fig.update_layout(
+        height=max(400, len(df_bloques["orden"].unique())*25),
+        xaxis_title="Hora SD",
+        yaxis_title="Orden de Trabajo",
+        template="plotly_dark",
+    )
+    return fig
 # ─────────────────────────────────────────────────────────────────────────────
 # MÓDULO 4: CURVA S
 # ─────────────────────────────────────────────────────────────────────────────
@@ -756,6 +807,10 @@ def main():
         return ""
 
     st.dataframe(matriz_filtrada.style.applymap(highlight_ot))
+
+    st.subheader("📊 Gantt por Orden de Trabajo (por horas de técnicos)")
+    st.caption("Cada barra = horas trabajadas de una OT por técnico")
+    st.plotly_chart(plot_gantt_ot(matriz_tecnicos), use_container_width=True)
 
     
     # ── TABS ──
