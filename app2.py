@@ -457,13 +457,21 @@ def plot_gantt_ot(matriz: pd.DataFrame):
     import plotly.express as px
     import pandas as pd
 
-    df_long = matriz.reset_index().rename(columns={matriz.index.name or 0: "tecnico"}).melt(
-        id_vars="tecnico",
-        var_name="hora_sd",
-        value_name="orden"
+    # Aseguramos que índice tenga nombre
+    matriz = matriz.rename_axis("tecnico").copy()
+    
+    # Convertimos a formato largo
+    df_long = matriz.reset_index().melt(
+        id_vars="tecnico", var_name="hora_sd", value_name="orden"
     )
-    df_long = df_long[df_long["orden"] != ""]
-
+    
+    # Solo filas con orden asignada
+    df_long = df_long[df_long["orden"] != ""].copy()
+    
+    # Hora como entero
+    df_long["hora_sd"] = df_long["hora_sd"].astype(int)
+    
+    # Creamos bloques consecutivos por técnico y OT
     bloques = []
     for tec, grp in df_long.groupby("tecnico"):
         grp = grp.sort_values("hora_sd")
@@ -476,29 +484,40 @@ def plot_gantt_ot(matriz: pd.DataFrame):
 
             if ot != prev_ot:
                 if prev_ot is not None:
-                    bloques.append({"tecnico": tec, "orden": prev_ot, "start_sd": start, "end_sd": h})
+                    bloques.append({
+                        "tecnico": tec,
+                        "orden": prev_ot,
+                        "start_sd": start,
+                        "end_sd": h
+                    })
                 prev_ot = ot
                 start = h
         if prev_ot is not None:
-            bloques.append({"tecnico": tec, "orden": prev_ot, "start_sd": start, "end_sd": h + 1})
+            bloques.append({
+                "tecnico": tec,
+                "orden": prev_ot,
+                "start_sd": start,
+                "end_sd": h + 1
+            })
 
     df_bloques = pd.DataFrame(bloques)
 
+    # Gantt: eje Y = técnico, color = OT
     fig = px.timeline(
         df_bloques,
         x_start="start_sd",
         x_end="end_sd",
-        y="orden",
-        color="tecnico",
+        y="tecnico",
+        color="orden",
         title="📊 Gantt por Orden de Trabajo",
         labels={"orden": "Orden de Trabajo", "tecnico": "Técnico", "start_sd": "Hora SD"},
     )
 
     fig.update_yaxes(autorange="reversed")
     fig.update_layout(
-        height=max(400, len(df_bloques["orden"].unique())*25),
+        height=max(400, len(df_bloques["tecnico"].unique())*25),
         xaxis_title="Hora SD",
-        yaxis_title="Orden de Trabajo",
+        yaxis_title="Técnico",
         template="plotly_dark",
     )
     return fig
