@@ -452,62 +452,57 @@ def optimizar_tecnicos_turnos(cron, horizonte=36):
 # ─────────────────────────────────────────────────────────
 # MÓDULO 3E: GANTT POR ORDEN DE TRABAJO
 # ─────────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────────
-# MÓDULO 3E: GANTT POR ORDEN DE TRABAJO (Turnos 8h)
-# ─────────────────────────────────────────────────────────
-def plot_gantt_ot_por_orden(matriz, inicio=datetime(2026,3,18,6,0)):
-    """
-    Gantt mostrando cada OT (orden de trabajo) en el eje Y
-    y el tiempo de ejecución en el eje X (36 horas).
-    matriz: DataFrame de técnicos x horas SD (0-35) con valores = OT asignada
-    """
+def plot_gantt_ot_por_orden(matriz: pd.DataFrame):
+    import pandas as pd
+    import plotly.express as px
+
+    # Asegurar que las columnas son enteros de 0 a 35
+    matriz = matriz.copy()
+    matriz.columns = list(range(matriz.shape[1]))
+
+    # Transformar a formato largo
     df_long = matriz.reset_index().melt(id_vars="index", var_name="hora_sd", value_name="orden")
     df_long.rename(columns={"index": "tecnico"}, inplace=True)
-    df_long = df_long[df_long["orden"] != ""]  # Solo OTs asignadas
+    df_long = df_long[df_long["orden"] != ""]  # filtrar celdas vacías
 
-    # Agrupar por OT para obtener bloques de tiempo (inicio-fin)
+    # Construir bloques consecutivos por OT y técnico
     bloques = []
-    for ot, grp in df_long.groupby("orden"):
-        horas = sorted(grp["hora_sd"].unique())
-        # Buscar bloques consecutivos
-        start = horas[0]
-        prev = horas[0]
-        for h in horas[1:]:
-            if h != prev + 1:
-                # bloque finaliza
-                bloques.append({
-                    "orden": ot,
-                    "start_dt": inicio + timedelta(hours=start),
-                    "end_dt": inicio + timedelta(hours=prev+1)
-                })
+    for tec, grp in df_long.groupby("tecnico"):
+        grp = grp.sort_values("hora_sd")
+        prev_ot = None
+        start = None
+
+        for _, row in grp.iterrows():
+            ot = row["orden"]
+            h = row["hora_sd"]
+            if ot != prev_ot:
+                if prev_ot is not None:
+                    bloques.append({"tecnico": tec, "orden": prev_ot, "start_sd": start, "end_sd": h})
+                prev_ot = ot
                 start = h
-            prev = h
-        # último bloque
-        bloques.append({
-            "orden": ot,
-            "start_dt": inicio + timedelta(hours=start),
-            "end_dt": inicio + timedelta(hours=prev+1)
-        })
+        if prev_ot is not None:
+            bloques.append({"tecnico": tec, "orden": prev_ot, "start_sd": start, "end_sd": h + 1})
 
     df_bloques = pd.DataFrame(bloques)
 
-    # Graficar Gantt
+    # Ajustar las horas a datetime empezando 18/03/2026 06:00
+    import datetime
+    inicio_sd = datetime.datetime(2026,3,18,6,0,0)
+    df_bloques["start"] = df_bloques["start_sd"].apply(lambda x: inicio_sd + datetime.timedelta(hours=int(x)))
+    df_bloques["end"]   = df_bloques["end_sd"].apply(lambda x: inicio_sd + datetime.timedelta(hours=int(x)))
+
+    # Crear gráfico Gantt
     fig = px.timeline(
         df_bloques,
-        x_start="start_dt",
-        x_end="end_dt",
+        x_start="start",
+        x_end="end",
         y="orden",
-        color="orden",
+        color="tecnico",
         title="📊 Gantt por Orden de Trabajo",
-        labels={"orden":"Orden de Trabajo","start_dt":"Inicio","end_dt":"Fin"},
+        labels={"orden":"Orden de Trabajo", "tecnico":"Técnico"}
     )
     fig.update_yaxes(autorange="reversed")
-    fig.update_layout(
-        height=max(400,len(df_bloques["orden"].unique())*25),
-        xaxis_title="Fecha y hora",
-        yaxis_title="Orden de Trabajo",
-        template="plotly_dark",
-    )
+    fig.update_layout(height=max(400, len(df_bloques["orden"].unique())*25))
     return fig
 # ─────────────────────────────────────────────────────────────────────────────
 # MÓDULO 4: CURVA S
