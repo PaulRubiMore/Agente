@@ -739,18 +739,17 @@ def main():
 
     matriz_filtrada = matriz_tecnicos.copy()
     if filtro_centro:
-        matriz_filtrada = matriz_filtrada[matriz_filtrada.index.str.split("_").str[0].isin(filtro_centro)]
-    if filtro_orden:
-        def highlight_ot(val):
-            return "background-color: #FFD700" if val == filtro_orden else ""
-        st.dataframe(matriz_filtrada.style.applymap(highlight_ot))
-    else:
-        st.dataframe(matriz_filtrada)
+        matriz_filtrada = matriz_filtrada[
+           matriz_filtrada.index.str.split("_").str[0].isin(filtro_centro)
+    ]
 
+    def highlight_ot(val):
+    val_str = str(val)  # Convertimos todo a string
+    if filtro_orden and filtro_orden in val_str:
+        return "background-color: #FFD700"
+    return ""
 
-
-
-
+    st.dataframe(matriz_filtrada.style.applymap(highlight_ot))
 
     # ── TABS ──
     tabs = st.tabs([
@@ -775,6 +774,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
