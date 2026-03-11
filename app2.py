@@ -450,68 +450,66 @@ def optimizar_tecnicos_turnos(cron, horizonte=36):
     return matriz
     
 # ─────────────────────────────────────────────────────────
-# MÓDULO 3E: GANTT POR ORDEN DE TRABAJO
+# MÓDULO 3E: GANTT POR ORDEN DE TRABAJO (Turnos 8h)
 # ─────────────────────────────────────────────────────────
-def plot_gantt_ot_simple(matriz):
+def plot_gantt_ot_turnos(matriz: pd.DataFrame, inicio_sd="2026-03-18 06:00"):
     import pandas as pd
     import plotly.express as px
-    import datetime
 
-    inicio_sd = datetime.datetime(2026,3,18,6,0,0)  # Miércoles 18, 6:00
+    inicio_dt = pd.to_datetime(inicio_sd)
+
+    df_long = matriz.reset_index().melt(id_vars=matriz.index.name or "tecnico", var_name="hora_sd", value_name="orden")
+    df_long = df_long[df_long["orden"] != ""].copy()
+    df_long.rename(columns={"index": "tecnico"}, inplace=True)
+    df_long["hora_sd"] = df_long["hora_sd"].astype(int)
+
     bloques = []
-
-    for tec, row in matriz.iterrows():
+    for tec, grp in df_long.groupby("tecnico"):
+        grp = grp.sort_values("hora_sd")
         prev_ot = None
         start_h = None
-        for h, ot in enumerate(row):
-            if pd.isna(ot) or ot == "":
-                if prev_ot is not None:
-                    bloques.append({
-                        "orden": str(prev_ot),
-                        "tecnico": tec,
-                        "start": inicio_sd + datetime.timedelta(hours=start_h),
-                        "end": inicio_sd + datetime.timedelta(hours=h)
-                    })
-                    prev_ot = None
-                    start_h = None
-                continue
+
+        for _, row in grp.iterrows():
+            ot = row["orden"]
+            h = row["hora_sd"]
 
             if ot != prev_ot:
                 if prev_ot is not None:
                     bloques.append({
-                        "orden": str(prev_ot),
                         "tecnico": tec,
-                        "start": inicio_sd + datetime.timedelta(hours=start_h),
-                        "end": inicio_sd + datetime.timedelta(hours=h)
+                        "orden": prev_ot,
+                        "start_dt": inicio_dt + pd.Timedelta(hours=start_h),
+                        "end_dt": inicio_dt + pd.Timedelta(hours=h)
                     })
                 prev_ot = ot
                 start_h = h
 
         if prev_ot is not None:
             bloques.append({
-                "orden": str(prev_ot),
                 "tecnico": tec,
-                "start": inicio_sd + datetime.timedelta(hours=start_h),
-                "end": inicio_sd + datetime.timedelta(hours=len(row))
+                "orden": prev_ot,
+                "start_dt": inicio_dt + pd.Timedelta(hours=start_h),
+                "end_dt": inicio_dt + pd.Timedelta(hours=grp["hora_sd"].max() + 1)
             })
 
     df_bloques = pd.DataFrame(bloques)
 
-    # Convertir todo a string antes de ordenar
-    ordenes = sorted([str(x) for x in df_bloques["orden"].unique() if pd.notna(x)])
-    df_bloques["orden"] = pd.Categorical(df_bloques["orden"], categories=ordenes, ordered=True)
-
     fig = px.timeline(
         df_bloques,
-        x_start="start",
-        x_end="end",
-        y="orden",
-        color="tecnico",
-        title="📊 Gantt por Orden de Trabajo",
-        labels={"orden":"Orden de Trabajo","tecnico":"Técnico"}
+        x_start="start_dt",
+        x_end="end_dt",
+        y="tecnico",
+        color="orden",
+        title="📊 Gantt por Orden de Trabajo (Turnos 8h)",
+        labels={"orden":"Orden de Trabajo", "tecnico":"Técnico", "start_dt":"Inicio", "end_dt":"Fin"}
     )
     fig.update_yaxes(autorange="reversed")
-    fig.update_layout(height=max(400, len(df_bloques["orden"].unique())*25))
+    fig.update_layout(
+        height=max(400, len(df_bloques["tecnico"].unique())*25),
+        xaxis_title="Fecha / Hora",
+        yaxis_title="Técnico",
+        template="plotly_dark"
+    )
     return fig
 # ─────────────────────────────────────────────────────────────────────────────
 # MÓDULO 4: CURVA S
@@ -824,7 +822,7 @@ def main():
 
     st.subheader("📊 Gantt por Orden de Trabajo (por horas de técnicos)")
     st.caption("Cada barra = horas trabajadas de una OT por técnico")
-    st.plotly_chart(plot_gantt_ot_simple(matriz_tecnicos), use_container_width=True)
+    st.plotly_chart(plot_gantt_ot_turnos(matriz_tecnicos), use_container_width=True)
 
     
     # ── TABS ──
