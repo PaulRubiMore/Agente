@@ -554,6 +554,62 @@ def plot_gantt(df: pd.DataFrame) -> go.Figure:
     )
     return fig
 
+import plotly.express as px
+import pandas as pd
+
+def gatt_diagrama_ot(matriz_tecnicos):
+    """
+    Genera un diagrama de Gantt donde:
+    - Eje Y: Técnicos
+    - Eje X: Horas
+    - Color: Orden de trabajo
+    """
+    datos_gantt = []
+
+    for tecnico in matriz_tecnicos.index:
+        ot_actual = None
+        inicio = None
+
+        for hora in matriz_tecnicos.columns:
+            ot = matriz_tecnicos.loc[tecnico, hora]
+            
+            # Detectamos cambios de OT o inicio
+            if ot != ot_actual:
+                if ot_actual is not None and ot_actual != "":
+                    # Guardamos el bloque anterior
+                    datos_gantt.append({
+                        "tecnico": tecnico,
+                        "orden": ot_actual,
+                        "inicio": inicio,
+                        "fin": hora
+                    })
+                ot_actual = ot
+                inicio = hora
+
+        # Guardar última OT si hay
+        if ot_actual is not None and ot_actual != "":
+            datos_gantt.append({
+                "tecnico": tecnico,
+                "orden": ot_actual,
+                "inicio": inicio,
+                "fin": matriz_tecnicos.columns[-1]+1
+            })
+
+    df_gantt = pd.DataFrame(datos_gantt)
+
+    # Crear diagrama Gantt
+    fig = px.timeline(
+        df_gantt,
+        x_start="inicio",
+        x_end="fin",
+        y="tecnico",
+        color="orden",
+        title="📊 Diagrama de Gantt - Órdenes de Trabajo",
+        labels={"orden":"Orden de Trabajo", "tecnico":"Técnico", "inicio":"Hora SD", "fin":"Hora SD"}
+    )
+    fig.update_yaxes(autorange="reversed")  # Para que se vea desde arriba
+    fig.show()
+
 # ─────────────────────────────────────────────────────────────────────────────
 # MÓDULO 6: EXPORTAR EXCEL
 # ─────────────────────────────────────────────────────────────────────────────
@@ -755,6 +811,10 @@ def main():
 
     st.dataframe(matriz_filtrada.style.applymap(highlight_ot))
 
+    st.subheader("📊 Diagrama de Gantt - Distribución de Órdenes de Trabajo")
+    fig_gantt = gatt_diagrama_ot(matriz_tecnicos)
+    st.plotly_chart(fig_gantt, use_container_width=True)
+    
     # ── TABS ──
     tabs = st.tabs([
         "📅 Gantt Actividades",
