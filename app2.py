@@ -546,7 +546,7 @@ def plot_gantt_ot_turnos(matriz, inicio_sd="2026-03-18 06:00"):
         height=max(400, len(df_bloques["tecnico"].unique()) * 30),
         xaxis_title="Fecha / Hora",
         yaxis_title="Técnico",
-        template="plotly_dark"
+        template="plotly_dark",
         showlegend=False
     )
 
