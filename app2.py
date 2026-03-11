@@ -570,7 +570,27 @@ def plot_gantt_ot_turnos(matriz, inicio_sd="2026-03-18 06:00"):
 
     return fig
 
+# ─────────────────────────────────────────────────────────────────────────────
+# MÓDULO 4: CURVA S
+# ─────────────────────────────────────────────────────────────────────────────
 
+def curva_s(df: pd.DataFrame, horizonte: int = 51) -> pd.DataFrame:
+    rows = []
+    for h in range(horizonte + 1):
+        comp = df[df["end_sd"] <= h]
+        av   = comp["valor_global_norm"].sum()
+        prog = df[(df["start_sd"] <= h) & (df["end_sd"] > h)]
+        if len(prog):
+            av += prog.apply(
+                lambda r: r["valor_global_norm"] * (h - r["start_sd"]) / max(r["duracion_h"], 1), axis=1
+            ).sum()
+        rows.append({
+            "hora_sd": h,
+            "hora_real": INICIO_SD + timedelta(hours=h),
+            "avance_acum": round(min(av * 100, 100), 2),
+            "acts_completas": len(comp),
+        })
+    return pd.DataFrame(rows)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -791,10 +811,11 @@ def main():
                 m      = limpiar_unificar(dfa, dfp)
                 m      = scoring(m, w_crit, w_riesgo, w_valor, w_dur)
                 cron   = programar(m, 51, riesgo_thr)
+                cs     = curva_s(cron, 51)
                 df_tecnicos_ot  = tecnicos_por_ot(cron)
                 cron = dividir_especialidades(cron)
                 matriz_tecnicos = optimizar_tecnicos_turnos(cron)          
-                st.session_state.update({"cron": cron, "tecnicos_ot": df_tecnicos_ot, "cron":cron, "matriz_tecnicos": matriz_tecnicos})
+                st.session_state.update({"cron": cron, "cs": cs, "tecnicos_ot": df_tecnicos_ot, "cron":cron, "matriz_tecnicos": matriz_tecnicos})
             except Exception as e:
                 st.error(f"❌ Error: {e}")
                 st.exception(e)
@@ -812,6 +833,7 @@ def main():
     n_tot = len(cron)
     n_cr  = int(cron["es_critica"].sum())
     pct36 = cron["dentro_horizonte"].mean() * 100
+    av36  = float(np.interp(36, cs["hora_sd"], cs["avance_acum"]))
     fin_dt = INICIO_SD + timedelta(hours=mksp)
 
     c1,c2,c3,c4,c5,c6 = st.columns(6)
