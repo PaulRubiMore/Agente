@@ -886,12 +886,11 @@ def main():
         cron_filtrado = cron_filtrado[
            cron_filtrado["orden"].astype(str) == filtro_ot
         ]
-
-# ── GRAFICO ──
-st.plotly_chart(
-    plot_gantt_ot_turnos(matriz_tecnicos),
-    use_container_width=True
-)
+    # ── GRAFICO ──
+    st.plotly_chart(
+        plot_gantt_ot_turnos(matriz_tecnicos),
+        use_container_width=True
+    )
     
     # ── TABS ──
     tabs = st.tabs([
