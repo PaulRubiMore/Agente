@@ -730,9 +730,11 @@ def main():
     # ── FILTROS EN STREAMLIT PARA MATRIZ DE TÉCNICOS ──
     st.subheader("📅 Planificación de técnicos por hora")
     st.caption("Cada fila es un técnico. Cada columna es una hora SD (0-36).")
+    
     centros_disponibles = sorted(matriz_tecnicos.index.str.split("_").str[0].unique())
     filtro_centro = st.multiselect("Filtrar por Centro", centros_disponibles)
-    ordenes_disponibles = sorted(cron["orden"].unique())
+    
+    ordenes_disponibles = sorted(cron["orden"].dropna().astype(str).unique())
     filtro_orden = st.selectbox("Resaltar Orden de Trabajo", [""] + ordenes_disponibles)
 
     matriz_filtrada = matriz_tecnicos.copy()
@@ -773,6 +775,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
