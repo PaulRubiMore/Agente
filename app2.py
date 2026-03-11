@@ -513,7 +513,6 @@ def plot_gantt_ot_turnos(matriz, inicio_sd="2026-03-18 06:00"):
             prev_ot = ot
             prev_h = h
 
-        # último bloque
         if prev_ot is not None:
             bloques.append({
                 "tecnico": tec,
@@ -524,6 +523,24 @@ def plot_gantt_ot_turnos(matriz, inicio_sd="2026-03-18 06:00"):
 
     df_bloques = pd.DataFrame(bloques)
 
+    if df_bloques.empty:
+        return px.scatter(title="No hay datos para mostrar")
+
+    # ── PALETA GRANDE DE COLORES (SIN DEGRADADO) ──
+    palette = (
+        px.colors.qualitative.Alphabet +
+        px.colors.qualitative.Dark24 +
+        px.colors.qualitative.Light24 +
+        px.colors.qualitative.Set3
+    )
+
+    ordenes = df_bloques["orden"].unique()
+
+    color_map = {
+        ot: palette[i % len(palette)]
+        for i, ot in enumerate(ordenes)
+    }
+
     # ── GANTT ──
     fig = px.timeline(
         df_bloques,
@@ -531,6 +548,7 @@ def plot_gantt_ot_turnos(matriz, inicio_sd="2026-03-18 06:00"):
         x_end="end_dt",
         y="tecnico",
         color="orden",
+        color_discrete_map=color_map,
         title="📊 Gantt Técnicos por Orden de Trabajo",
         labels={
             "orden": "Orden de Trabajo",
