@@ -893,11 +893,13 @@ def main():
         ]
     
         
-    # ── GRAFICO ──
-    st.plotly_chart(
-        plot_gantt_ot_turnos(matriz_filtrada),
-        use_container_width=True
-    )
+    if matriz_filtrada.replace("", pd.NA).dropna(how="all").empty:
+        st.warning("⚠️ No hay actividades para los filtros seleccionados")
+    else:
+        st.plotly_chart(
+            plot_gantt_ot_turnos(matriz_filtrada),
+            use_container_width=True
+        )
     
     # ── TABS ──
     tabs = st.tabs([
