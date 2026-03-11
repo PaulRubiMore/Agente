@@ -455,64 +455,60 @@ def optimizar_tecnicos_turnos(cron, horizonte=36):
 # ─────────────────────────────────────────────────────────
 # MÓDULO 3E: GANTT POR ORDEN DE TRABAJO (Turnos 8h)
 # ─────────────────────────────────────────────────────────
-def plot_gantt_ot_turnos(matriz: pd.DataFrame, inicio_sd="2026-03-18 06:00"):
-    import pandas as pd
-    import plotly.express as px
+from datetime import datetime, timedelta
+import pandas as pd
+import plotly.express as px
 
-    inicio_dt = pd.to_datetime(inicio_sd)
+def plot_gantt_ot_turnos(matriz, inicio=datetime(2026,3,18,6,0)):
+    # Convertir la matriz a formato largo
+    df_long = matriz.reset_index()
+    df_long.rename(columns={df_long.columns[0]: "tecnico"}, inplace=True)
+    df_long = df_long.melt(id_vars="tecnico", var_name="hora_sd", value_name="orden")
+    df_long = df_long[df_long["orden"] != ""]  # Solo OTs asignadas
 
-    df_long = matriz.reset_index().melt(id_vars=matriz.index.name or "tecnico", var_name="hora_sd", value_name="orden")
-    df_long = df_long[df_long["orden"] != ""].copy()
-    df_long.rename(columns={"index": "tecnico"}, inplace=True)
-    df_long["hora_sd"] = df_long["hora_sd"].astype(int)
-
+    # Agrupar por técnico y OT para bloques
     bloques = []
     for tec, grp in df_long.groupby("tecnico"):
         grp = grp.sort_values("hora_sd")
         prev_ot = None
-        start_h = None
+        start = None
 
         for _, row in grp.iterrows():
             ot = row["orden"]
-            h = row["hora_sd"]
+            h = int(row["hora_sd"])
 
             if ot != prev_ot:
                 if prev_ot is not None:
                     bloques.append({
                         "tecnico": tec,
                         "orden": prev_ot,
-                        "start_dt": inicio_dt + pd.Timedelta(hours=start_h),
-                        "end_dt": inicio_dt + pd.Timedelta(hours=h)
+                        "start_dt": inicio + timedelta(hours=start),
+                        "end_dt": inicio + timedelta(hours=h)
                     })
                 prev_ot = ot
-                start_h = h
-
+                start = h
         if prev_ot is not None:
             bloques.append({
                 "tecnico": tec,
                 "orden": prev_ot,
-                "start_dt": inicio_dt + pd.Timedelta(hours=start_h),
-                "end_dt": inicio_dt + pd.Timedelta(hours=grp["hora_sd"].max() + 1)
+                "start_dt": inicio + timedelta(hours=start),
+                "end_dt": inicio + timedelta(hours=h+1)
             })
 
     df_bloques = pd.DataFrame(bloques)
 
+    # Graficar
     fig = px.timeline(
         df_bloques,
         x_start="start_dt",
         x_end="end_dt",
         y="tecnico",
         color="orden",
-        title="📊 Gantt por Orden de Trabajo (Turnos 8h)",
-        labels={"orden":"Orden de Trabajo", "tecnico":"Técnico", "start_dt":"Inicio", "end_dt":"Fin"}
+        title="📊 Gantt por Orden de Trabajo",
+        labels={"orden":"Orden de Trabajo","tecnico":"Técnico","start_dt":"Inicio","end_dt":"Fin"}
     )
     fig.update_yaxes(autorange="reversed")
-    fig.update_layout(
-        height=max(400, len(df_bloques["tecnico"].unique())*25),
-        xaxis_title="Fecha / Hora",
-        yaxis_title="Técnico",
-        template="plotly_dark"
-    )
+    fig.update_layout(height=max(400,len(df_bloques["tecnico"].unique())*25), template="plotly_dark")
     return fig
 
 # ─────────────────────────────────────────────────────────────────────────────
