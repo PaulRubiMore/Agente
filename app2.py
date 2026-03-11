@@ -867,25 +867,29 @@ def main():
     col1, col2 = st.columns(2)
     centros = sorted(cron["centro"].unique())
     ordenes = sorted(cron["orden"].astype(str).unique())
-    filtro_centro = col1.multiselect(
+    filtro_centro_gantt = col1.multiselect(
         "Filtrar por Centro",
-        centros
+        centros,
+        key="filtro_centro_gantt"
     )
-    filtro_ot = col2.selectbox(
+    
+    filtro_ot_gantt = col2.selectbox(
         "Seleccionar Orden de Trabajo",
-        ["Todas"] + ordenes
+        ["Todas"] + ordenes,
+        key="filtro_ot_gantt"
     )
     
     # ── APLICAR FILTROS ──
     cron_filtrado = cron.copy()
-    if filtro_centro:
+    if filtro_centro_gantt:
         cron_filtrado = cron_filtrado[
-           cron_filtrado["centro"].isin(filtro_centro)
+           cron_filtrado["centro"].isin(filtro_centro_gantt)
         ]
-    if filtro_ot != "Todas":
+    if filtro_ot_gantt != "Todas":
         cron_filtrado = cron_filtrado[
-           cron_filtrado["orden"].astype(str) == filtro_ot
+           cron_filtrado["orden"].astype(str) == filtro_ot_gantt
         ]
+        
     # ── GRAFICO ──
     st.plotly_chart(
         plot_gantt_ot_turnos(matriz_tecnicos),
