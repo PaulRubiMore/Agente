@@ -549,6 +549,40 @@ def plot_gantt(df: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def plot_gantt_ot(cron: pd.DataFrame) -> go.Figure:
+    df = cron.copy()
+    
+    # Convertimos horas SD a datetime
+    df["inicio_real"] = df["inicio_real"]
+    df["fin_real"]    = df["fin_real"]
+    
+    # Agrupar por Orden de Trabajo y sumar duración por cada orden
+    df_ot = df.groupby("orden").agg(
+        inicio_min=("inicio_real","min"),
+        fin_max=("fin_real","max"),
+        centro=("centro", lambda x: ", ".join(sorted(x.unique()))),
+        criticidad=("criticidad", lambda x: x.mode()[0] if len(x)>0 else "Baja"),
+        actividades=("actividad", lambda x: ", ".join(x))
+    ).reset_index()
+    
+    # Crear Gantt
+    fig = px.timeline(
+        df_ot,
+        x_start="inicio_min",
+        x_end="fin_max",
+        y="orden",
+        color="criticidad",
+        color_discrete_map={"Muy Alta":"#B71C1C","Alta":"#E53935","Media":"#FB8C00","Baja":"#43A047"},
+        hover_data=["centro","actividades"],
+        title="📅 Gantt por Órdenes de Trabajo — SD18MAR26",
+        template="plotly_dark"
+    )
+    
+    fig.update_yaxes(autorange="reversed")  # Invertir eje Y para que el OT más temprano quede arriba
+    fig.update_layout(height=max(400, len(df_ot)*30), xaxis_title="Fecha / Hora Real", yaxis_title="Orden de Trabajo")
+    
+    return fig
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MÓDULO 6: EXPORTAR EXCEL
@@ -751,6 +785,10 @@ def main():
 
     st.dataframe(matriz_filtrada.style.applymap(highlight_ot))
 
+    st.subheader("📊 Gantt por Órdenes de Trabajo")
+    st.caption("Cada fila es una Orden de Trabajo. El eje X son las horas SD / tiempo real.")
+    st.plotly_chart(plot_gantt_ot(cron), use_container_width=True)
+
     # ── TABS ──
     tabs = st.tabs([
         "📅 Gantt Actividades",
@@ -774,6 +812,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
