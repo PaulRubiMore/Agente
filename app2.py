@@ -820,7 +820,7 @@ def main():
 
     st.subheader("📊 Gantt por Orden de Trabajo (por horas de técnicos)")
     st.caption("Cada barra = horas trabajadas de una OT por técnico")
-    st.plotly_chart(plot_gantt_ot_turnos(matriz_tecnicos), use_container_width=True)
+    st.plotly_chart(plot_gantt_ot_por_orden(matriz_tecnicos), use_container_width=True)
 
     
     # ── TABS ──
