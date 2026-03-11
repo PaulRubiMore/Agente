@@ -570,27 +570,7 @@ def plot_gantt_ot_turnos(matriz, inicio_sd="2026-03-18 06:00"):
 
     return fig
 
-# ─────────────────────────────────────────────────────────────────────────────
-# MÓDULO 4: CURVA S
-# ─────────────────────────────────────────────────────────────────────────────
 
-def curva_s(df: pd.DataFrame, horizonte: int = 51) -> pd.DataFrame:
-    rows = []
-    for h in range(horizonte + 1):
-        comp = df[df["end_sd"] <= h]
-        av   = comp["valor_global_norm"].sum()
-        prog = df[(df["start_sd"] <= h) & (df["end_sd"] > h)]
-        if len(prog):
-            av += prog.apply(
-                lambda r: r["valor_global_norm"] * (h - r["start_sd"]) / max(r["duracion_h"], 1), axis=1
-            ).sum()
-        rows.append({
-            "hora_sd": h,
-            "hora_real": INICIO_SD + timedelta(hours=h),
-            "avance_acum": round(min(av * 100, 100), 2),
-            "acts_completas": len(comp),
-        })
-    return pd.DataFrame(rows)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -918,26 +898,7 @@ def main():
             plot_gantt_ot_turnos(matriz_filtrada),
             use_container_width=True
         )
-    
-    # ── TABS ──
-    tabs = st.tabs([
-        "📅 Gantt Actividades",
-    ])
 
-    # ── TAB 1 ──
-    with tabs[0]:
-        st.subheader("Diagrama de Gantt — Todas las Actividades")
-        st.caption("🖱️ Rueda del ratón = zoom · Arrastra = desplazar · Click leyenda = filtrar · Hover = detalle completo")
-        ca, cb, cc = st.columns(3)
-        fc = ca.multiselect("Centro",      sorted(cron["centro"].unique()),       key="t1c")
-        fr = cb.multiselect("Criticidad",  ["Muy Alta","Alta","Media","Baja"],    key="t1r")
-        so = cc.checkbox("Solo ruta crítica", key="t1s")
-        dg = cron.copy()
-        if fc: dg = dg[dg["centro"].isin(fc)]
-        if fr: dg = dg[dg["criticidad"].isin(fr)]
-        if so: dg = dg[dg["es_critica"] == True]
-        st.caption(f"Mostrando **{len(dg)}** de {n_tot} actividades")
-        st.plotly_chart(plot_gantt(dg), use_container_width=True)
 
 
 if __name__ == "__main__":
